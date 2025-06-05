@@ -7512,7 +7512,7 @@ public func FfiConverterTypeItemsRequest_lower(_ value: ItemsRequest) -> RustBuf
 }
 
 
-public struct MdlReaderResponseData {
+public struct MdlReaderResponseData: Encodable {
     public var state: MdlSessionManager
     /**
      * Contains the namespaces for the mDL directly, without top-level doc types
@@ -7551,6 +7551,10 @@ public struct MdlReaderResponseData {
         self.issuerAuthentication = issuerAuthentication
         self.deviceAuthentication = deviceAuthentication
         self.errors = errors
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case verifiedResponse, issuerAuthentication, deviceAuthentication, errors
     }
 }
 
@@ -7592,14 +7596,16 @@ public struct MdlReaderSessionData {
     public var uuid: Uuid
     public var request: Data
     public var bleIdent: Data
+    public var mode: MdlSessionMode
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(state: MdlSessionManager, uuid: Uuid, request: Data, bleIdent: Data) {
+    public init(state: MdlSessionManager, uuid: Uuid, request: Data, bleIdent: Data, mode: MdlSessionMode) {
         self.state = state
         self.uuid = uuid
         self.request = request
         self.bleIdent = bleIdent
+        self.mode = mode
     }
 }
 
@@ -7612,7 +7618,8 @@ public struct FfiConverterTypeMDLReaderSessionData: FfiConverterRustBuffer {
                 state: FfiConverterTypeMDLSessionManager.read(from: &buf), 
                 uuid: FfiConverterTypeUuid.read(from: &buf), 
                 request: FfiConverterData.read(from: &buf), 
-                bleIdent: FfiConverterData.read(from: &buf)
+                bleIdent: FfiConverterData.read(from: &buf), 
+                mode: FfiConverterTypeMDLSessionMode.read(from: &buf)
         )
     }
 
@@ -7621,6 +7628,7 @@ public struct FfiConverterTypeMDLReaderSessionData: FfiConverterRustBuffer {
         FfiConverterTypeUuid.write(value.uuid, into: &buf)
         FfiConverterData.write(value.request, into: &buf)
         FfiConverterData.write(value.bleIdent, into: &buf)
+        FfiConverterTypeMDLSessionMode.write(value.mode, into: &buf)
     }
 }
 
@@ -7967,11 +7975,11 @@ public func FfiConverterTypeStatusMessage_lower(_ value: StatusMessage) -> RustB
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum AuthenticationStatus {
+public enum AuthenticationStatus: String, Codable {
     
-    case valid
-    case invalid
-    case unchecked
+    case valid = "Valid"
+    case invalid = "Invalid"
+    case unchecked = "Unchecked"
 }
 
 
@@ -9247,7 +9255,62 @@ extension MdlReaderSessionError: Foundation.LocalizedError {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum MDocItem {
+public enum MdlSessionMode {
+    
+    case centralClientMode
+    case peripheralServerMode
+}
+
+
+public struct FfiConverterTypeMDLSessionMode: FfiConverterRustBuffer {
+    typealias SwiftType = MdlSessionMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MdlSessionMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .centralClientMode
+        
+        case 2: return .peripheralServerMode
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MdlSessionMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .centralClientMode:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .peripheralServerMode:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+public func FfiConverterTypeMDLSessionMode_lift(_ buf: RustBuffer) throws -> MdlSessionMode {
+    return try FfiConverterTypeMDLSessionMode.lift(buf)
+}
+
+public func FfiConverterTypeMDLSessionMode_lower(_ value: MdlSessionMode) -> RustBuffer {
+    return FfiConverterTypeMDLSessionMode.lower(value)
+}
+
+
+
+extension MdlSessionMode: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum MDocItem: Codable {
     
     case text(String
     )
@@ -9259,6 +9322,22 @@ public enum MDocItem {
     )
     case array([MDocItem]
     )
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .text(let s):
+            try container.encode(s)
+        case .bool(let a):
+            try container.encode(a)
+        case .integer(let n):
+            try container.encode(n)
+        case .itemMap(let n):
+            try container.encode(n)
+        case .array(let n):
+            try container.encode(n)
+        }
+    }
 }
 
 
@@ -13249,10 +13328,11 @@ public func defaultLdJsonContext() -> [String: String] {
     )
 })
 }
-public func establishSession(uri: String, requestedItems: [String: [String: Bool]], trustAnchorRegistry: [String]?)throws  -> MdlReaderSessionData {
+public func establishSession(uri: String, docType: String, requestedItems: [String: [String: Bool]], trustAnchorRegistry: [String]?)throws  -> MdlReaderSessionData {
     return try  FfiConverterTypeMDLReaderSessionData.lift(try rustCallWithError(FfiConverterTypeMDLReaderSessionError.lift) {
     uniffi_mobile_sdk_rs_fn_func_establish_session(
         FfiConverterString.lower(uri),
+        FfiConverterString.lower(docType),
         FfiConverterDictionaryStringDictionaryStringBool.lower(requestedItems),
         FfiConverterOptionSequenceString.lower(trustAnchorRegistry),$0
     )
@@ -13528,7 +13608,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_default_ld_json_context() != 13685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 26937) {
+    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 37237) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_generate_pop_complete() != 41207) {
