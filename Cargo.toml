@@ -19,11 +19,13 @@ path = "uniffi-bindgen.rs"
 cose-rs = { git = "https://github.com/spruceid/cose-rs", rev = "0018c9b", features = [
     "time",
 ] }
-isomdl = { path = "/Users/iancarbone/Documents/Development/SpruceID/isomdl" }
+isomdl = { path = "/Users/iancarbone/Documents/Development/SpruceID/AQSpruce/mobile-isomdl" }
 oid4vci = { git = "https://github.com/spruceid/oid4vci-rs", rev = "e97b01e" }
 openid4vp = { git = "https://github.com/spruceid/openid4vp", rev = "2212f78" }
 ssi = { version = "0.10.2", features = ["secp256r1", "secp384r1"] }
-
+ssi-jws = "0.3.1"
+async-std = { version = "1", features = ["attributes", "tokio1"] }
+base64-url = "*"
 anyhow = "1.0.95"
 async-trait = "0.1"
 base64 = "0.22.0"
