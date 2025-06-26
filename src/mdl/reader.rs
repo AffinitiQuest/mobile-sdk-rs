@@ -1,7 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap}, future::Future, str::FromStr, sync::Arc
+    collections::{BTreeMap, HashMap}, f64::consts::E, future::Future, str::FromStr, sync::Arc
 };
 
+use async_std::stream::Map;
 use isomdl::{
     definitions::{
         device_request, helpers::{non_empty_map, NonEmptyMap}, x509::{
@@ -9,7 +10,7 @@ use isomdl::{
             trust_anchor::{PemTrustAnchor, TrustAnchorRegistry},
         }, DeviceAuth, EC2Curve
     },
-    presentation::{authentication::AuthenticationStatus as IsoMdlAuthenticationStatus, reader},
+    presentation::{authentication::{AuthenticationStatus as IsoMdlAuthenticationStatus, ResponseAuthenticationOutcome}, reader},
 };
 use uuid::{uuid, Uuid};
 use josekit::{jwk::{alg::ec::EcCurve::P256, Jwk}, jws::JwsHeader, jwt::{self, JwtPayload}, JoseError};
@@ -242,101 +243,59 @@ pub struct MDLReaderResponseData {
     pub errors: Option<String>,
 }
 
+pub struct W3CVerificationData {
+    pub issuer_authentication: bool,
+    pub response: serde_json::Value,
+}
+
 #[tokio::main]
-pub async fn get_jwt(jwt: &str, detached_payload: &str, device_auth: &str) -> (bool, bool)  {
+pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponseError>  {
     let header = jwt::decode_header(jwt).unwrap();
     println!("header: {:#?}", header);
     let kid = header.claim("kid").unwrap().as_str().unwrap();
     println!("kid: {:#?}", kid);
     let did = DIDURL::new(&kid).unwrap();
-    println!("did: {:#?}", did);
+    let without_fragment = did.without_fragment().0;
+    let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
+    let domain = &without_fragment[8..];
+    println!("did: {:#?}", domain);
 
-    let url = "https://new-authority-us.dids.aqvc.me/.well-known/did.json";
+    let url = format!("https://{domain}/.well-known/did.json");
+    println!("{:#?}", url);
     let did_document = reqwest::get(url)
                         .await
                         .unwrap()
                         .text()
                         .await;
 
-    let json: serde_json::Value = serde_json::from_str(&did_document.unwrap()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&did_document.unwrap()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get parse DID Document.".to_string() })?;
     if let Some(vms) = json["verificationMethod"].as_array() {
         for vm in vms {
-            if vm["id"] == "#key_1" {
+            let fragment_string = fragment.as_str();
+            println!("{:#?}", fragment_string);
+            let key_id = format!("#{fragment_string}");
+            if vm["id"] == key_id {
                 let jws = Jws::new(&jwt).unwrap();
-                let da_jws = JwsSignature::new(device_auth.as_bytes().to_vec());
-                let public_key_jwk = vm["publicKeyJwk"].as_object().unwrap().clone();
-                // let jwk: Jwk = Jwk::from_map(public_key_jwk).unwrap();
-                // let verifier = ES256.verifier_from_jwk(&jwk).unwrap();
-                // let (payload, header) = jwt::decode_with_verifier(&jwt, &verifier).unwrap();
-                let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().unwrap();
-                let decoded_jwt = jws.to_decoded_jwt().unwrap();
-                assert!(jws.verify(&key).await.unwrap().is_ok());
+                let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
+                let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse Issuer JWK from DID Document.".to_string() })?;
+                let decoded_jwt = jws.to_decoded_jwt().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get decoded JWT.".to_string() })?;
+                let verification_result = jws.verify(&key).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
                 let claims: JWTClaims = decoded_jwt.signing_bytes.payload;// ["payload"]["registered"]["VerifiableCredential"]["credentialSubject"]["id"];
                 let registered_claims = serde_json::json!(claims.registered);
-                let vc = registered_claims.as_object().unwrap();
-                println!("{:#?}", vc);
-                let verifiable_credential = vc["vc"].clone();
-                let credential_subject = verifiable_credential.as_object().unwrap()["credentialSubject"].clone();
-                let id = credential_subject["id"].clone();
-                println!("{:#?}", id);
-                let key_part = &id.as_str().unwrap()[8..];
-                println!("{:#?}", key_part);
-                let jwk_values = base64_url::decode(key_part).unwrap();
-                println!("{:#?}", jwk_values);
-                let binding_key_jwk_val = serde_json::json!(jwk_values);
-                //let binding_key_jwk = binding_key_jwk_val.as_object().unwrap();
-                //println!("{:#?}", binding_key_jwk);
-                println!("{:#?}", key);
-                let binding_key = CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, base64_url::decode("kNYnHB2Mxald17CScUyumLGMUmh_Iy1k0IllLHWJviw").unwrap(), base64_url::decode("YbnKNspahbv7dJbEAHRh-zUQKIDqTTuMxQjv4MQJftY").unwrap()).build();
-                
-                let signing_bytes = detached_payload.as_bytes();
-                let cbor_decoded: DeviceAuth = isomdl::cbor::from_slice(device_auth.as_bytes()).unwrap();
-                println!("{:#?}", cbor_decoded);
-                
-                //let sig = p256::ecdsa::Signature::try_from(DeviceAuth::DeviceSignature((cbor_decoded)));
-                assert!(verify_bytes(&coset::RegisteredLabelWithPrivate::Assigned(coset::iana::Algorithm::ES256), &binding_key, &base64_url::decode(signing_bytes).unwrap(), &base64_url::decode(device_auth).unwrap()).unwrap() == true);
-                println!("DONE.");
-                // let resolved = DIDJWK.dereference(did_url).await.unwrap();
-                // let vm = resolved.content.as_verification_method().unwrap();
-                // let binding_key_jwk: ssi::jwk::JWK = serde_json::json!(vm.properties.get("publicKeyMultibase").unwrap()).try_into().unwrap();
-
-                // let binding_key_jws = Jws::new(&device_auth).unwrap();
-                // assert!(binding_key_jws.verify(&binding_key_jwk).await.unwrap().is_ok());
-                // println!("{:#?}", binding_key_jwk);
-                // let did = DIDJWK::generate_url(&key.to_public());
-                // let vm_resolver = DIDJWK.into_vm_resolver();
-                // let params = VerificationParameters::from_resolver(vm_resolver);
-    
-                //let validation_result = josekit::jwt::verify(jwt, &key, &header);
-                //println!("{:#?}", validation_result);
+                let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
+                let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+                let credential_subject = vc["credentialSubject"].clone();
+                return Ok(W3CVerificationData {
+                    issuer_authentication: verification_result, 
+                    response: credential_subject.clone()
+                })
             }
         }
     }
-    //println!("{:#?}", vms);
-
-
-    // // Setup the DID resolver.
-    // let resolver = AnyDidMethod::default();
-
-    // // Dereference the verification method.
-    // let handle = tokio::runtime::Handle::current();
-    // let vm = resolver
-    //     .dereference(did)
-    //     .await
-    //     .unwrap()
-    //     .content
-    //     .into_verification_method()
-    //     .unwrap();
-    // println!("{:#?}", handle);
-    // println!("vm: {:#?}", vm);
-    //let (payload, header2) = jwt::decode_unsecured(jwt).unwrap();
-    
-    //println!("jwt: {:#?}", jwt);
-    //println!("payload: {:#?}", payload);
-    //println!("header2: {:#?}", header);
-
-    //return (payload, header2);
-    return (true, true);
+    return Ok(W3CVerificationData {
+        issuer_authentication: false, 
+        response: serde_json::to_value(serde_json::Map::new()).unwrap()
+    });
 }
 
 #[uniffi::export]
@@ -345,23 +304,24 @@ pub async fn handle_response(
     response: Vec<u8>,
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
     let mut state = state.0.clone();
-    let validated_response = state.handle_response(&response);
+    let mut validated_response = state.handle_response(&response);
     println!("{:#?}", validated_response);
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
-        println!("Do custom verification.");
+        println!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
-        let w3c_document:BTreeMap<String, String> = serde_json::from_value(response.get("w3c_documents").unwrap().clone()).unwrap();
-        let jwt = w3c_document.get("jwt");
-        let jwt_bytes = jwt.unwrap().as_bytes();
-        let jws = w3c_document.get("device_auth");
-        let jws_bytes = jws.unwrap().as_bytes();
-        let detached_payload = w3c_document.get("device_auth");
-        let detached_payload_bytes = jws.unwrap().as_bytes();
-        let (issuer_auth, device_auth) = get_jwt(&jwt.unwrap(), &detached_payload.unwrap(), &jws.unwrap());
-        println!("{issuer_auth} {device_auth}");
-        // MDLReaderResponseError::Generic {
-        //     value: format!("Could not serialze errors: {e:?}"),
-        // }
+        let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let issuer_authentication = get_jwt(&jwt).unwrap();
+        let verification_result = issuer_authentication.issuer_authentication;
+        if(verification_result) {
+            validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
+            validated_response.response.clear();
+            validated_response.response.insert("all".to_string(), issuer_authentication.response);
+        } else {
+            validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
+            validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
+        }
     }
 
     let errors = if !validated_response.errors.is_empty() {
