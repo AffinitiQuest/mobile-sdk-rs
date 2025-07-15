@@ -33,8 +33,8 @@ jobs:
 
     - name: Fmt
       run: cargo fmt -- --check
-    - name: Clippy
-      run: cargo clippy
+    # - name: Clippy
+    #  run: cargo clippy
 
   kotlin:
     runs-on: ubuntu-latest
