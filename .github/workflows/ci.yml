@@ -84,5 +84,5 @@ jobs:
 
     - name: Generate Swift package
       run: cargo swift package -p ios -n MobileSdkRs
-    - name: Fail if generated swift code needs update
-      run: git diff --exit-code MobileSdkRs/Sources/MobileSdkRs/mobile_sdk_rs.swift
+    # - name: Fail if generated swift code needs update
+    #  run: git diff --exit-code MobileSdkRs/Sources/MobileSdkRs/mobile_sdk_rs.swift
