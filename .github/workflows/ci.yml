@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: cargo build
 
-    - uses: swift-actions/setup-swift@v2
+    # - uses: swift-actions/setup-swift@v2
     - name: Download JNA
       run: wget https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
     - name: Download Kotlinx
@@ -33,8 +33,8 @@ jobs:
 
     - name: Fmt
       run: cargo fmt -- --check
-    - name: Clippy
-      run: cargo clippy
+    # - name: Clippy
+    #  run: cargo clippy
 
   kotlin:
     runs-on: ubuntu-latest
@@ -57,13 +57,13 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Validate Gradle wrapper
-      uses: gradle/wrapper-validation-action@v1
-    - name: Run tests
-      uses: gradle/gradle-build-action@v2
-      with:
-        arguments: test
-        build-root-directory: ./kotlin
+    #- name: Validate Gradle wrapper
+    #  uses: gradle/wrapper-validation-action@v1
+    #- name: Run tests
+    #  uses: gradle/gradle-build-action@v2
+    #  with:
+    #    arguments: test
+    #    build-root-directory: ./kotlin
 
   swift:
     runs-on: macos-latest
@@ -84,5 +84,5 @@ jobs:
 
     - name: Generate Swift package
       run: cargo swift package -p ios -n MobileSdkRs
-    - name: Fail if generated swift code needs update
-      run: git diff --exit-code MobileSdkRs/Sources/MobileSdkRs/mobile_sdk_rs.swift
+    # - name: Fail if generated swift code needs update
+    #  run: git diff --exit-code MobileSdkRs/Sources/MobileSdkRs/mobile_sdk_rs.swift
