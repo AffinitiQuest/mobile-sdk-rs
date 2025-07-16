@@ -8437,7 +8437,7 @@ public func FfiConverterTypeItemsRequest_lower(_ value: ItemsRequest) -> RustBuf
 }
 
 
-public struct MdlReaderResponseData {
+public struct MdlReaderResponseData: Encodable {
     public var state: MdlSessionManager
     /**
      * Contains the namespaces for the mDL directly, without top-level doc types
