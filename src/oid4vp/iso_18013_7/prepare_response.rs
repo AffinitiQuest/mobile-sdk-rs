@@ -236,6 +236,7 @@ pub fn prepare_response(
     let response = DeviceResponse {
         version: "1.0".into(),
         documents: Some(documents),
+        w3c_documents: None,
         document_errors: None,
         status: isomdl::definitions::device_response::Status::OK,
     };
