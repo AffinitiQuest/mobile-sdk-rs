@@ -13328,11 +13328,12 @@ public func defaultLdJsonContext() -> [String: String] {
     )
 })
 }
-public func establishSession(uri: String, docType: String, requestedItems: [String: [String: Bool]], trustAnchorRegistry: [String]?)throws  -> MdlReaderSessionData {
+public func establishSession(uri: String, docType: String, format: String, requestedItems: [String: [String: Bool]], trustAnchorRegistry: [String]?)throws  -> MdlReaderSessionData {
     return try  FfiConverterTypeMDLReaderSessionData.lift(try rustCallWithError(FfiConverterTypeMDLReaderSessionError.lift) {
     uniffi_mobile_sdk_rs_fn_func_establish_session(
         FfiConverterString.lower(uri),
         FfiConverterString.lower(docType),
+        FfiConverterString.lower(format),
         FfiConverterDictionaryStringDictionaryStringBool.lower(requestedItems),
         FfiConverterOptionSequenceString.lower(trustAnchorRegistry),$0
     )
@@ -13614,7 +13615,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_default_ld_json_context() != 13685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 37237) {
+    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 54255) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_generate_pop_complete() != 41207) {

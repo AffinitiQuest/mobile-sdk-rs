@@ -57,6 +57,7 @@ pub struct MDLReaderSessionData {
 pub fn establish_session(
     uri: String,
     docType: String,
+    format: String,
     requested_items: HashMap<String, HashMap<String, bool>>,
     trust_anchor_registry: Option<Vec<String>>,
 ) -> Result<MDLReaderSessionData, MDLReaderSessionError> {
@@ -95,7 +96,7 @@ pub fn establish_session(
     })?;
 
     let (manager, request, ble_ident) =
-        reader::SessionManager::establish_session(uri.to_string(), docType, namespaces, registry).map_err(
+        reader::SessionManager::establish_session(uri.to_string(), docType, format, namespaces, registry).map_err(
             |e| MDLReaderSessionError::Generic {
                 value: format!("unable to establish session: {e:?}"),
             },
