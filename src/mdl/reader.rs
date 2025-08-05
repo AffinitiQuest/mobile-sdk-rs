@@ -263,7 +263,12 @@ pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponse
 
     let url = format!("https://{domain}/.well-known/did.json");
     println!("{:#?}", url);
-    let did_document = reqwest::get(url)
+    let client = reqwest::Client::builder()
+        .use_rustls_tls()
+        .build().map_err(|_| MDLReaderResponseError::Generic{ value: "Failed to instantiate HTTPS client.".to_string()})?;
+
+    let did_document = client.get(url)
+                        .send()
                         .await
                         .unwrap()
                         .text()
@@ -310,9 +315,9 @@ pub async fn handle_response(
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
         println!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
-        let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve w3c_documents.".to_string() })?;
+        let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to decode w3c_documents.".to_string() })?;
+        let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve jwt.".to_string() })?;
         let issuer_authentication = get_jwt(&jwt).unwrap();
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
