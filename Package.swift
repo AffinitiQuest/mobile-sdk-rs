@@ -21,8 +21,8 @@ let package = Package(
         .binaryTarget(
             name: "RustFramework",
             url:
-                "https://github.com/affinitiquest/mobile-sdk-rs/releases/download/1.0.1/RustFramework.xcframework.zip",
-            checksum: "c24e94e00334a090edc0cf6c9c3cc2d332a6ba49439e252ea75716980aeb2e63"),
+                "https://github.com/affinitiquest/mobile-sdk-rs/releases/download/1.0.2/RustFramework.xcframework.zip",
+            checksum: "ec33c3a24f0e460b749d3dcbcf956dd7541ea8a2e54d6d8660707a921ec5bf68"),
         .target(
             name: "SpruceIDMobileSdkRs",
             dependencies: [
