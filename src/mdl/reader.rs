@@ -5,12 +5,12 @@ use std::{
 use async_std::stream::Map;
 use isomdl::{
     definitions::{
-        device_request, helpers::{non_empty_map, NonEmptyMap}, x509::{
+        device_request, helpers::{non_empty_map, NonEmptyMap, NonEmptyVec}, x509::{
             self,
             trust_anchor::{PemTrustAnchor, TrustAnchorRegistry},
         }, DeviceAuth, EC2Curve
     },
-    presentation::{authentication::{AuthenticationStatus as IsoMdlAuthenticationStatus, ResponseAuthenticationOutcome}, reader},
+    presentation::{authentication::{AuthenticationStatus as IsoMdlAuthenticationStatus, ResponseAuthenticationOutcome}, reader::{self, SessionManager}},
 };
 use uuid::{uuid, Uuid};
 use josekit::{jwk::{alg::ec::EcCurve::P256, Jwk}, jws::JwsHeader, jwt::{self, JwtPayload}, JoseError};
@@ -181,7 +181,7 @@ pub enum MDLReaderResponseError {
 // Currently, a lot of information is lost in `isomdl`. For example, bytes are
 // converted to strings, but we could also imagine detecting images and having
 // a specific enum variant for them.
-#[derive(uniffi::Enum, Debug)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum MDocItem {
     Text(String),
     Bool(bool),
@@ -231,7 +231,7 @@ impl From<IsoMdlAuthenticationStatus> for AuthenticationStatus {
         }
     }
 }
-#[derive(uniffi::Record, Debug)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct MDLReaderResponseData {
     state: Arc<MDLSessionManager>,
     /// Contains the namespaces for the mDL directly, without top-level doc types
@@ -299,14 +299,29 @@ pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponse
     });
 }
 
-#[uniffi::export]
-pub async fn handle_response(
-    state: Arc<MDLSessionManager>,
-    response: Vec<u8>,
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VerificationResponse {
+    responses: Vec<MDLReaderResponseData>
+}
+
+impl FromIterator<MDLReaderResponseData> for VerificationResponse {
+        fn from_iter<T: IntoIterator<Item = MDLReaderResponseData>>(iter: T) -> Self {
+            let mut items: Vec<MDLReaderResponseData> = Vec::new();
+            for i in iter {
+                items.push(i);
+            }
+            VerificationResponse {
+                responses: items
+            }
+        }
+    }
+
+pub fn get_verified_response(
+    state: SessionManager,
+    validated_response_object: ResponseAuthenticationOutcome
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
-    let mut state = state.0.clone();
-    let mut validated_response = state.handle_response(&response);
-    println!("{:#?}", validated_response);
+    println!("{:#?}", validated_response_object);
+    let mut validated_response = validated_response_object.clone();
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
         println!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
@@ -364,4 +379,21 @@ pub async fn handle_response(
         device_authentication: AuthenticationStatus::from(validated_response.device_authentication),
         errors,
     })
+}
+
+#[uniffi::export]
+pub async fn handle_response(
+    state: Arc<MDLSessionManager>,
+    response: Vec<u8>,
+) -> Result<VerificationResponse, MDLReaderResponseError> {
+    let mut state = state.0.clone();
+    let validated_responses = state.handle_response(&response);
+    let verified_responses: VerificationResponse = validated_responses
+                                .into_iter()
+                                .map(|validated_response| {
+                                    let verified_response = get_verified_response(state.clone(), validated_response.clone());
+                                    verified_response.unwrap()
+                                })
+                                .collect();
+    Ok(verified_responses)
 }
