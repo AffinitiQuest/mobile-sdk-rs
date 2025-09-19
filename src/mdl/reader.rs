@@ -250,7 +250,7 @@ pub struct W3CVerificationData {
 }
 
 #[tokio::main]
-pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponseError>  {
+pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: bool) -> Result<W3CVerificationData, MDLReaderResponseError>  {
     let header = jwt::decode_header(jwt).unwrap();
     println!("header: {:#?}", header);
     let kid = header.claim("kid").unwrap().as_str().unwrap();
@@ -260,6 +260,8 @@ pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponse
     let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
     let domain = &without_fragment[8..];
     println!("did: {:#?}", domain);
+    
+    let trusted_did_document = dids.get(without_fragment.as_str());
 
     let url = format!("https://{domain}/.well-known/did.json");
     println!("{:#?}", url);
@@ -269,7 +271,28 @@ pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponse
                         .text()
                         .await;
 
-    let json: serde_json::Value = serde_json::from_str(&did_document.unwrap()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get parse DID Document.".to_string() })?;
+    let final_did_document = match did_document {
+        Ok(resolved_did_document) => {
+            if resolve_dids { 
+                resolved_did_document 
+            } else { 
+                if trusted_did_document.is_none() {
+                    return Err(MDLReaderResponseError::Generic { value: "Failed to resolve DID Document.".to_string() });
+                } else {
+                    trusted_did_document.unwrap().clone()
+                }
+            }
+        }
+        Err(e) => {
+            if trusted_did_document.is_none() {
+                return Err(MDLReaderResponseError::Generic { value: "Failed to resolve DID Document.".to_string() });
+            } else {
+                trusted_did_document.unwrap().clone()
+            }
+        }
+    };
+    
+    let json: serde_json::Value = serde_json::from_str(&final_did_document).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse DID Document.".to_string() })?;
     if let Some(vms) = json["verificationMethod"].as_array() {
         for vm in vms {
             let fragment_string = fragment.as_str();
@@ -303,7 +326,11 @@ pub async fn get_jwt(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponse
 pub async fn handle_response(
     state: Arc<MDLSessionManager>,
     response: Vec<u8>,
+    dids: HashMap<String, String>,
+    resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
+    println!("{:#?}", dids);
+    println!("{:#?}", resolve_dids);
     let mut state = state.0.clone();
     let mut validated_response = state.handle_response(&response);
     println!("{:#?}", validated_response);
@@ -313,7 +340,7 @@ pub async fn handle_response(
         let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        let issuer_authentication = get_jwt(&jwt).unwrap();
+        let issuer_authentication = get_jwt(&jwt, dids, resolve_dids).unwrap();
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
