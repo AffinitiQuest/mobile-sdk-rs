@@ -13372,11 +13372,11 @@ public func generateTestMdl(keyManager: KeyStore, keyAlias: KeyAlias)throws  -> 
     )
 })
 }
-public func handleResponse(state: MdlSessionManager, response: Data)async throws  -> MdlReaderResponseData {
+public func handleResponse(state: MdlSessionManager, response: Data, dids: [String: String], resolveDids: Bool)async throws  -> MdlReaderResponseData {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_mobile_sdk_rs_fn_func_handle_response(FfiConverterTypeMDLSessionManager.lower(state),FfiConverterData.lower(response)
+                uniffi_mobile_sdk_rs_fn_func_handle_response(FfiConverterTypeMDLSessionManager.lower(state),FfiConverterData.lower(response),FfiConverterDictionaryStringString.lower(dids),FfiConverterBool.lower(resolveDids)
                 )
             },
             pollFunc: ffi_mobile_sdk_rs_rust_future_poll_rust_buffer,
@@ -13627,7 +13627,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_generate_test_mdl() != 22635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_handle_response() != 53662) {
+    if (uniffi_mobile_sdk_rs_checksum_func_handle_response() != 12784) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_init_global_logger() != 47162) {
