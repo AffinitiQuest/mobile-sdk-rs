@@ -341,7 +341,9 @@ impl FromIterator<MDLReaderResponseData> for VerificationResponse {
 
 pub fn get_verified_response(
     state: SessionManager,
-    validated_response_object: ResponseAuthenticationOutcome
+    validated_response_object: ResponseAuthenticationOutcome,
+    dids: HashMap<String, String> ,
+    resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
     println!("{:#?}", validated_response_object);
     let mut validated_response = validated_response_object.clone();
@@ -413,10 +415,15 @@ pub async fn handle_response(
 ) -> Result<VerificationResponse, MDLReaderResponseError> {
     let mut state = state.0.clone();
     let validated_responses = state.handle_response(&response);
-    let verified_responses: VerificationResponse = validated_responses
+    println!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
+    if validated_responses.responses.len() == 0 {
+        return Err(MDLReaderResponseError::Generic { value: "No valid credentials shared.".to_string() });
+    }
+
+    let verified_responses: VerificationResponse = validated_responses.responses
                                 .into_iter()
                                 .map(|validated_response| {
-                                    let verified_response = get_verified_response(state.clone(), validated_response.clone(), dids, resolve_dids);
+                                    let verified_response = get_verified_response(state.clone(), validated_response.clone(), dids.clone(), resolve_dids);
                                     verified_response.unwrap()
                                 })
                                 .collect();

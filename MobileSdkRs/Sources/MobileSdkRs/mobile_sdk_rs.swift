@@ -7972,6 +7972,41 @@ public func FfiConverterTypeStatusMessage_lower(_ value: StatusMessage) -> RustB
     return FfiConverterTypeStatusMessage.lower(value)
 }
 
+
+public struct VerificationResponse {
+    public var responses: [MdlReaderResponseData]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(responses: [MdlReaderResponseData]) {
+        self.responses = responses
+    }
+}
+
+
+
+public struct FfiConverterTypeVerificationResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VerificationResponse {
+        return
+            try VerificationResponse(
+                responses: FfiConverterSequenceTypeMDLReaderResponseData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VerificationResponse, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeMDLReaderResponseData.write(value.responses, into: &buf)
+    }
+}
+
+
+public func FfiConverterTypeVerificationResponse_lift(_ buf: RustBuffer) throws -> VerificationResponse {
+    return try FfiConverterTypeVerificationResponse.lift(buf)
+}
+
+public func FfiConverterTypeVerificationResponse_lower(_ value: VerificationResponse) -> RustBuffer {
+    return FfiConverterTypeVerificationResponse.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -12430,6 +12465,28 @@ fileprivate struct FfiConverterSequenceTypeItemsRequest: FfiConverterRustBuffer 
     }
 }
 
+fileprivate struct FfiConverterSequenceTypeMDLReaderResponseData: FfiConverterRustBuffer {
+    typealias SwiftType = [MdlReaderResponseData]
+
+    public static func write(_ value: [MdlReaderResponseData], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMDLReaderResponseData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MdlReaderResponseData] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MdlReaderResponseData]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMDLReaderResponseData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 fileprivate struct FfiConverterSequenceTypeRequestedField180137: FfiConverterRustBuffer {
     typealias SwiftType = [RequestedField180137]
 
@@ -13372,7 +13429,7 @@ public func generateTestMdl(keyManager: KeyStore, keyAlias: KeyAlias)throws  -> 
     )
 })
 }
-public func handleResponse(state: MdlSessionManager, response: Data, dids: [String: String], resolveDids: Bool)async throws  -> MdlReaderResponseData {
+public func handleResponse(state: MdlSessionManager, response: Data, dids: [String: String], resolveDids: Bool)async throws  -> VerificationResponse {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
@@ -13382,7 +13439,7 @@ public func handleResponse(state: MdlSessionManager, response: Data, dids: [Stri
             pollFunc: ffi_mobile_sdk_rs_rust_future_poll_rust_buffer,
             completeFunc: ffi_mobile_sdk_rs_rust_future_complete_rust_buffer,
             freeFunc: ffi_mobile_sdk_rs_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeMDLReaderResponseData.lift,
+            liftFunc: FfiConverterTypeVerificationResponse.lift,
             errorHandler: FfiConverterTypeMDLReaderResponseError.lift
         )
 }
@@ -13627,7 +13684,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_generate_test_mdl() != 22635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_handle_response() != 12784) {
+    if (uniffi_mobile_sdk_rs_checksum_func_handle_response() != 50551) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_init_global_logger() != 47162) {
