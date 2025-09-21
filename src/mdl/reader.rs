@@ -247,6 +247,7 @@ pub struct MDLReaderResponseData {
 pub struct W3CVerificationData {
     pub issuer_authentication: bool,
     pub response: serde_json::Value,
+    pub credential_status: Option<serde_json::Value>,
 }
 
 #[tokio::main]
@@ -309,16 +310,20 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
                 let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
                 let credential_subject = vc["credentialSubject"].clone();
+                let credential_status = vc.get("credentialStatus");
+                println!("Credential Status: {:#?}", credential_status);
                 return Ok(W3CVerificationData {
                     issuer_authentication: verification_result, 
-                    response: credential_subject.clone()
+                    response: credential_subject.clone(),
+                    credential_status: credential_status.cloned(),
                 })
             }
         }
     }
     return Ok(W3CVerificationData {
         issuer_authentication: false, 
-        response: serde_json::to_value(serde_json::Map::new()).unwrap()
+        response: serde_json::to_value(serde_json::Map::new()).unwrap(),
+        credential_status: None
     });
 }
 
@@ -353,12 +358,17 @@ pub fn get_verified_response(
         let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        println!("{:#?}", jwt);
         let issuer_authentication = get_jwt(&jwt, dids, resolve_dids).unwrap();
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
             validated_response.response.clear();
             validated_response.response.insert("all".to_string(), issuer_authentication.response);
+            if issuer_authentication.credential_status != None {
+                println!("Credential status present.");
+                validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
+            }
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
             validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
