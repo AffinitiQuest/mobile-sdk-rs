@@ -5,12 +5,12 @@ use std::{
 use async_std::stream::Map;
 use isomdl::{
     definitions::{
-        device_request, helpers::{non_empty_map, NonEmptyMap}, x509::{
+        device_request, helpers::{non_empty_map, NonEmptyMap, NonEmptyVec}, x509::{
             self,
             trust_anchor::{PemTrustAnchor, TrustAnchorRegistry},
         }, DeviceAuth, EC2Curve
     },
-    presentation::{authentication::{AuthenticationStatus as IsoMdlAuthenticationStatus, ResponseAuthenticationOutcome}, reader},
+    presentation::{authentication::{AuthenticationStatus as IsoMdlAuthenticationStatus, ResponseAuthenticationOutcome}, reader::{self, SessionManager}},
 };
 use uuid::{uuid, Uuid};
 use josekit::{jwk::{alg::ec::EcCurve::P256, Jwk}, jws::JwsHeader, jwt::{self, JwtPayload}, JoseError};
@@ -181,7 +181,7 @@ pub enum MDLReaderResponseError {
 // Currently, a lot of information is lost in `isomdl`. For example, bytes are
 // converted to strings, but we could also imagine detecting images and having
 // a specific enum variant for them.
-#[derive(uniffi::Enum, Debug)]
+#[derive(uniffi::Enum, Clone, Debug)]
 pub enum MDocItem {
     Text(String),
     Bool(bool),
@@ -231,7 +231,7 @@ impl From<IsoMdlAuthenticationStatus> for AuthenticationStatus {
         }
     }
 }
-#[derive(uniffi::Record, Debug)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct MDLReaderResponseData {
     state: Arc<MDLSessionManager>,
     /// Contains the namespaces for the mDL directly, without top-level doc types
@@ -247,6 +247,7 @@ pub struct MDLReaderResponseData {
 pub struct W3CVerificationData {
     pub issuer_authentication: bool,
     pub response: serde_json::Value,
+    pub credential_status: Option<serde_json::Value>,
 }
 
 #[tokio::main]
@@ -309,43 +310,65 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
                 let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
                 let credential_subject = vc["credentialSubject"].clone();
+                let credential_status = vc.get("credentialStatus");
+                println!("Credential Status: {:#?}", credential_status);
                 return Ok(W3CVerificationData {
                     issuer_authentication: verification_result, 
-                    response: credential_subject.clone()
+                    response: credential_subject.clone(),
+                    credential_status: credential_status.cloned(),
                 })
             }
         }
     }
     return Ok(W3CVerificationData {
         issuer_authentication: false, 
-        response: serde_json::to_value(serde_json::Map::new()).unwrap()
+        response: serde_json::to_value(serde_json::Map::new()).unwrap(),
+        credential_status: None
     });
 }
 
-#[uniffi::export]
-pub async fn handle_response(
-    state: Arc<MDLSessionManager>,
-    response: Vec<u8>,
-    dids: HashMap<String, String>,
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VerificationResponse {
+    responses: Vec<MDLReaderResponseData>
+}
+
+impl FromIterator<MDLReaderResponseData> for VerificationResponse {
+        fn from_iter<T: IntoIterator<Item = MDLReaderResponseData>>(iter: T) -> Self {
+            let mut items: Vec<MDLReaderResponseData> = Vec::new();
+            for i in iter {
+                items.push(i);
+            }
+            VerificationResponse {
+                responses: items
+            }
+        }
+    }
+
+pub fn get_verified_response(
+    state: SessionManager,
+    validated_response_object: ResponseAuthenticationOutcome,
+    dids: HashMap<String, String> ,
     resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
-    println!("{:#?}", dids);
-    println!("{:#?}", resolve_dids);
-    let mut state = state.0.clone();
-    let mut validated_response = state.handle_response(&response);
-    println!("{:#?}", validated_response);
+    println!("{:#?}", validated_response_object);
+    let mut validated_response = validated_response_object.clone();
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
         println!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
         let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        println!("{:#?}", jwt);
         let issuer_authentication = get_jwt(&jwt, dids, resolve_dids).unwrap();
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
             validated_response.response.clear();
             validated_response.response.insert("all".to_string(), issuer_authentication.response);
+            if issuer_authentication.credential_status != None {
+                println!("Credential status present.");
+                validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
+            }
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
             validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
@@ -391,4 +414,28 @@ pub async fn handle_response(
         device_authentication: AuthenticationStatus::from(validated_response.device_authentication),
         errors,
     })
+}
+
+#[uniffi::export]
+pub async fn handle_response(
+    state: Arc<MDLSessionManager>,
+    response: Vec<u8>,
+    dids: HashMap<String, String>,
+    resolve_dids: bool
+) -> Result<VerificationResponse, MDLReaderResponseError> {
+    let mut state = state.0.clone();
+    let validated_responses = state.handle_response(&response);
+    println!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
+    if validated_responses.responses.len() == 0 {
+        return Err(MDLReaderResponseError::Generic { value: "No valid credentials shared.".to_string() });
+    }
+
+    let verified_responses: VerificationResponse = validated_responses.responses
+                                .into_iter()
+                                .map(|validated_response| {
+                                    let verified_response = get_verified_response(state.clone(), validated_response.clone(), dids.clone(), resolve_dids);
+                                    verified_response.unwrap()
+                                })
+                                .collect();
+    Ok(verified_responses)
 }
