@@ -248,6 +248,7 @@ pub struct W3CVerificationData {
     pub issuer_authentication: bool,
     pub response: serde_json::Value,
     pub credential_status: Option<serde_json::Value>,
+    pub valid_until: Option<serde_json::Value>
 }
 
 #[tokio::main]
@@ -318,11 +319,13 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
                 let credential_subject = vc["credentialSubject"].clone();
                 let credential_status = vc.get("credentialStatus");
+                let valid_until = vc.get("validUntil");
                 println!("Credential Status: {:#?}", credential_status);
                 return Ok(W3CVerificationData {
                     issuer_authentication: verification_result, 
                     response: credential_subject.clone(),
                     credential_status: credential_status.cloned(),
+                    valid_until: valid_until.cloned()
                 })
             }
         }
@@ -330,7 +333,8 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     return Ok(W3CVerificationData {
         issuer_authentication: false, 
         response: serde_json::to_value(serde_json::Map::new()).unwrap(),
-        credential_status: None
+        credential_status: None,
+        valid_until: None
     });
 }
 
@@ -375,6 +379,11 @@ pub fn get_verified_response(
             if issuer_authentication.credential_status != None {
                 println!("Credential status present.");
                 validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
+            }
+
+            if issuer_authentication.valid_until != None {
+                println!("Valid until present.");
+                validated_response.response.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
             }
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
