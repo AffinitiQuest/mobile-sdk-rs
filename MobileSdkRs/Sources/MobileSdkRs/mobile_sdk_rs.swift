@@ -3298,7 +3298,7 @@ public func FfiConverterTypeOID4VP180137_lower(_ value: Oid4vp180137) -> UnsafeM
 
 public protocol Oid4vciProtocol : AnyObject {
     
-    func clearContextMap() throws
+    func clearContextMap() throws 
     
     func exchangeCredential(proofsOfPossession: [String], options: Oid4vciExchangeOptions) async throws  -> [CredentialResponse]
     
@@ -3306,13 +3306,13 @@ public protocol Oid4vciProtocol : AnyObject {
     
     func getMetadata() throws  -> Oid4vciMetadata
     
-    func initiate(baseUrl: String, clientId: String, redirectUrl: String) async throws
+    func initiate(baseUrl: String, clientId: String, redirectUrl: String) async throws 
     
-    func initiateLogger()
+    func initiateLogger() 
     
-    func initiateWithOffer(credentialOffer: String, clientId: String, redirectUrl: String) async throws
+    func initiateWithOffer(credentialOffer: String, clientId: String, redirectUrl: String) async throws 
     
-    func setContextMap(values: [String: String]) throws
+    func setContextMap(values: [String: String]) throws 
     
 }
 
@@ -5524,7 +5524,7 @@ public protocol StorageManagerInterface : AnyObject {
      * key - The key to add
      * value - The value to add under the key.
      */
-    func add(key: Key, value: Value) async throws
+    func add(key: Key, value: Value) async throws 
     
     /**
      * Function: get
@@ -5549,7 +5549,7 @@ public protocol StorageManagerInterface : AnyObject {
      * particular, it must treat removing a non-existent key as a normal and
      * expected circumstance, simply returning () and not an error.
      */
-    func remove(key: Key) async throws
+    func remove(key: Key) async throws 
     
 }
 
@@ -6403,7 +6403,7 @@ public protocol VdcCollectionProtocol : AnyObject {
     /**
      * Add a credential to the set.
      */
-    func add(credential: Credential) async throws
+    func add(credential: Credential) async throws 
     
     /**
      * Get a list of all the credentials.
@@ -6418,12 +6418,12 @@ public protocol VdcCollectionProtocol : AnyObject {
     /**
      * Remove a credential from the store.
      */
-    func delete(id: Uuid) async throws
+    func delete(id: Uuid) async throws 
     
     /**
      * Dump the contents of the credential set to the logger.
      */
-    func dump() async
+    func dump() async 
     
     /**
      * Get a credential from the store.
@@ -6692,7 +6692,7 @@ public struct FfiConverterTypeApprovedResponse180137: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApprovedResponse180137 {
         return
             try ApprovedResponse180137(
-                credentialId: FfiConverterTypeUuid.read(from: &buf),
+                credentialId: FfiConverterTypeUuid.read(from: &buf), 
                 approvedFields: FfiConverterSequenceTypeFieldId180137.read(from: &buf)
         )
     }
@@ -6743,16 +6743,16 @@ public struct Credential {
     public init(
         /**
          * The local ID of this credential.
-         */id: Uuid,
+         */id: Uuid, 
         /**
          * The format of this credential.
-         */format: CredentialFormat,
+         */format: CredentialFormat, 
         /**
          * The type of this credential.
-         */type: CredentialType,
+         */type: CredentialType, 
         /**
          * The raw payload of this credential. The encoding depends on the format.
-         */payload: Data,
+         */payload: Data, 
         /**
          * The alias of the key that is authorized to present this credential.
          */keyAlias: KeyAlias?) {
@@ -6800,10 +6800,10 @@ public struct FfiConverterTypeCredential: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Credential {
         return
             try Credential(
-                id: FfiConverterTypeUuid.read(from: &buf),
-                format: FfiConverterTypeCredentialFormat.read(from: &buf),
-                type: FfiConverterTypeCredentialType.read(from: &buf),
-                payload: FfiConverterData.read(from: &buf),
+                id: FfiConverterTypeUuid.read(from: &buf), 
+                format: FfiConverterTypeCredentialFormat.read(from: &buf), 
+                type: FfiConverterTypeCredentialType.read(from: &buf), 
+                payload: FfiConverterData.read(from: &buf), 
                 keyAlias: FfiConverterOptionTypeKeyAlias.read(from: &buf)
         )
     }
@@ -6849,10 +6849,10 @@ public struct CredentialInfo {
     public init(
         /**
          * The credential title that should be displayed on the success screen.
-         */title: String,
+         */title: String, 
         /**
          * The image that should be displayed on the success screen.
-         */image: Data,
+         */image: Data, 
         /**
          * The claims decoded from the credential.
          */claims: [String: ClaimValue]) {
@@ -6890,8 +6890,8 @@ public struct FfiConverterTypeCredentialInfo: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialInfo {
         return
             try CredentialInfo(
-                title: FfiConverterString.read(from: &buf),
-                image: FfiConverterData.read(from: &buf),
+                title: FfiConverterString.read(from: &buf), 
+                image: FfiConverterData.read(from: &buf), 
                 claims: FfiConverterDictionaryStringTypeClaimValue.read(from: &buf)
         )
     }
@@ -6949,7 +6949,7 @@ public struct FfiConverterTypeCredentialResponse: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialResponse {
         return
             try CredentialResponse(
-                format: FfiConverterTypeCredentialFormat.read(from: &buf),
+                format: FfiConverterTypeCredentialFormat.read(from: &buf), 
                 payload: FfiConverterData.read(from: &buf)
         )
     }
@@ -6988,7 +6988,7 @@ public struct DelegateInitializationResponse {
         /**
          * This is the authorization request URL to be presented in
          * a QR code to the holder.
-         */authQuery: String,
+         */authQuery: String, 
         /**
          * This is the status URL to check the presentation status
          * from the delegated verifier.
@@ -7022,7 +7022,7 @@ public struct FfiConverterTypeDelegateInitializationResponse: FfiConverterRustBu
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DelegateInitializationResponse {
         return
             try DelegateInitializationResponse(
-                authQuery: FfiConverterString.read(from: &buf),
+                authQuery: FfiConverterString.read(from: &buf), 
                 uri: FfiConverterString.read(from: &buf)
         )
     }
@@ -7113,7 +7113,7 @@ public struct DelegatedVerifierStatusResponse {
     public init(
         /**
          * The status of the verification request.
-         */status: DelegatedVerifierStatus,
+         */status: DelegatedVerifierStatus, 
         /**
          * OID4VP presentation
          */oid4vp: DelegatedVerifierOid4vpResponse?) {
@@ -7146,7 +7146,7 @@ public struct FfiConverterTypeDelegatedVerifierStatusResponse: FfiConverterRustB
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DelegatedVerifierStatusResponse {
         return
             try DelegatedVerifierStatusResponse(
-                status: FfiConverterTypeDelegatedVerifierStatus.read(from: &buf),
+                status: FfiConverterTypeDelegatedVerifierStatus.read(from: &buf), 
                 oid4vp: FfiConverterOptionTypeDelegatedVerifierOid4vpResponse.read(from: &buf)
         )
     }
@@ -7185,7 +7185,7 @@ public struct Element {
     public init(
         /**
          * Name of the data element.
-         */identifier: String,
+         */identifier: String, 
         /**
          * JSON representation of the data element, missing if the value cannot be represented as JSON.
          */value: String?) {
@@ -7218,7 +7218,7 @@ public struct FfiConverterTypeElement: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Element {
         return
             try Element(
-                identifier: FfiConverterString.read(from: &buf),
+                identifier: FfiConverterString.read(from: &buf), 
                 value: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -7284,8 +7284,8 @@ public struct FfiConverterTypeFailure: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Failure {
         return
             try Failure(
-                code: FfiConverterUInt64.read(from: &buf),
-                reason: FfiConverterString.read(from: &buf),
+                code: FfiConverterUInt64.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf), 
                 details: FfiConverterString.read(from: &buf)
         )
     }
@@ -7360,9 +7360,9 @@ public struct FfiConverterTypeHttpRequest: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HttpRequest {
         return
             try HttpRequest(
-                url: FfiConverterString.read(from: &buf),
-                method: FfiConverterString.read(from: &buf),
-                headers: FfiConverterDictionaryStringString.read(from: &buf),
+                url: FfiConverterString.read(from: &buf), 
+                method: FfiConverterString.read(from: &buf), 
+                headers: FfiConverterDictionaryStringString.read(from: &buf), 
                 body: FfiConverterData.read(from: &buf)
         )
     }
@@ -7432,8 +7432,8 @@ public struct FfiConverterTypeHttpResponse: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HttpResponse {
         return
             try HttpResponse(
-                statusCode: FfiConverterUInt16.read(from: &buf),
-                headers: FfiConverterDictionaryStringString.read(from: &buf),
+                statusCode: FfiConverterUInt16.read(from: &buf), 
+                headers: FfiConverterDictionaryStringString.read(from: &buf), 
                 body: FfiConverterData.read(from: &buf)
         )
     }
@@ -7491,7 +7491,7 @@ public struct FfiConverterTypeItemsRequest: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ItemsRequest {
         return
             try ItemsRequest(
-                docType: FfiConverterString.read(from: &buf),
+                docType: FfiConverterString.read(from: &buf), 
                 namespaces: FfiConverterDictionaryStringDictionaryStringBool.read(from: &buf)
         )
     }
@@ -7564,10 +7564,10 @@ public struct FfiConverterTypeMDLReaderResponseData: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MdlReaderResponseData {
         return
             try MdlReaderResponseData(
-                state: FfiConverterTypeMDLSessionManager.read(from: &buf),
-                verifiedResponse: FfiConverterDictionaryStringDictionaryStringTypeMDocItem.read(from: &buf),
-                issuerAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf),
-                deviceAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf),
+                state: FfiConverterTypeMDLSessionManager.read(from: &buf), 
+                verifiedResponse: FfiConverterDictionaryStringDictionaryStringTypeMDocItem.read(from: &buf), 
+                issuerAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf), 
+                deviceAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf), 
                 errors: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -7615,10 +7615,10 @@ public struct FfiConverterTypeMDLReaderSessionData: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MdlReaderSessionData {
         return
             try MdlReaderSessionData(
-                state: FfiConverterTypeMDLSessionManager.read(from: &buf),
-                uuid: FfiConverterTypeUuid.read(from: &buf),
-                request: FfiConverterData.read(from: &buf),
-                bleIdent: FfiConverterData.read(from: &buf),
+                state: FfiConverterTypeMDLSessionManager.read(from: &buf), 
+                uuid: FfiConverterTypeUuid.read(from: &buf), 
+                request: FfiConverterData.read(from: &buf), 
+                bleIdent: FfiConverterData.read(from: &buf), 
                 mode: FfiConverterTypeMDLSessionMode.read(from: &buf)
         )
     }
@@ -7757,12 +7757,12 @@ public struct FfiConverterTypeRequestedField180137: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestedField180137 {
         return
             try RequestedField180137(
-                id: FfiConverterTypeFieldId180137.read(from: &buf),
-                displayableName: FfiConverterString.read(from: &buf),
-                displayableValue: FfiConverterOptionString.read(from: &buf),
-                selectivelyDisclosable: FfiConverterBool.read(from: &buf),
-                intentToRetain: FfiConverterBool.read(from: &buf),
-                required: FfiConverterBool.read(from: &buf),
+                id: FfiConverterTypeFieldId180137.read(from: &buf), 
+                displayableName: FfiConverterString.read(from: &buf), 
+                displayableValue: FfiConverterOptionString.read(from: &buf), 
+                selectivelyDisclosable: FfiConverterBool.read(from: &buf), 
+                intentToRetain: FfiConverterBool.read(from: &buf), 
+                required: FfiConverterBool.read(from: &buf), 
                 purpose: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -7828,7 +7828,7 @@ public struct ResponseOptions {
          * This is an non-normative setting to determine
          * the behavior of removing extra quotations around a JSON
          * string encoded vp_token, e.g. "'[{ @context: [...] }]'" -> '[{ @context: [...] }]'
-         */shouldStripQuotes: Bool,
+         */shouldStripQuotes: Bool, 
         /**
          * Boolean option of whether to use `array_or_value` serialization options
          * for the verifiable presentation.
@@ -7842,7 +7842,7 @@ public struct ResponseOptions {
          *
          * These options are provided as configurable parameters to maintain backwards
          * compatibility with verifier implementation versions.
-         */forceArraySerialization: Bool,
+         */forceArraySerialization: Bool, 
         /**
          * Remove the `$.vp` path prefix for the descriptor map for the verifiable credential.
          * This is non-normative option, e.g. `$.vp` -> `$`
@@ -7881,8 +7881,8 @@ public struct FfiConverterTypeResponseOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResponseOptions {
         return
             try ResponseOptions(
-                shouldStripQuotes: FfiConverterBool.read(from: &buf),
-                forceArraySerialization: FfiConverterBool.read(from: &buf),
+                shouldStripQuotes: FfiConverterBool.read(from: &buf), 
+                forceArraySerialization: FfiConverterBool.read(from: &buf), 
                 removeVpPathPrefix: FfiConverterBool.read(from: &buf)
         )
     }
@@ -7919,7 +7919,7 @@ public struct StatusMessage {
     public init(
         /**
          * The value of the entry in the status list
-         */status: UInt8,
+         */status: UInt8, 
         /**
          * Message that corresponds the the value.
          */message: String) {
@@ -7952,7 +7952,7 @@ public struct FfiConverterTypeStatusMessage: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StatusMessage {
         return
             try StatusMessage(
-                status: FfiConverterUInt8.read(from: &buf),
+                status: FfiConverterUInt8.read(from: &buf), 
                 message: FfiConverterString.read(from: &buf)
         )
     }
@@ -8802,7 +8802,7 @@ public struct FfiConverterTypeHttpClientError: FfiConverterRustBuffer {
             value: try FfiConverterString.read(from: &buf)
             )
         case 8: return .HeaderEntryParse(
-            key: try FfiConverterString.read(from: &buf),
+            key: try FfiConverterString.read(from: &buf), 
             value: try FfiConverterString.read(from: &buf)
             )
         case 9: return .Other(
@@ -10419,7 +10419,7 @@ public struct FfiConverterTypePermissionRequestError: FfiConverterRustBuffer {
             try FfiConverterString.read(from: &buf)
             )
         case 5: return .InvalidSelectedCredential(
-            try FfiConverterString.read(from: &buf),
+            try FfiConverterString.read(from: &buf), 
             try FfiConverterString.read(from: &buf)
             )
         case 6: return .CredentialPresentation(

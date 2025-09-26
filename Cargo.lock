@@ -2750,56 +2750,6 @@ dependencies = [
 [[package]]
 name = "isomdl"
 version = "0.1.0"
-dependencies = [
- "aes",
- "aes-gcm",
- "anyhow",
- "asn1-rs",
- "async-signature",
- "base64 0.13.1",
- "base64-url",
- "ciborium",
- "clap",
- "clap-stdin",
- "const-oid 0.9.6",
- "coset",
- "der 0.7.9",
- "digest 0.10.7",
- "ecdsa",
- "elliptic-curve",
- "hex",
- "hex-literal",
- "hkdf",
- "hmac",
- "isomdl-macros 0.1.0",
- "jsonwebtokens",
- "p256",
- "p384",
- "pem-rfc7468 0.7.0",
- "rand",
- "sec1",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha1",
- "sha2 0.10.8",
- "signature",
- "ssi-claims-core",
- "ssi-jwk 0.2.1",
- "ssi-jws",
- "strum",
- "strum_macros",
- "thiserror 1.0.69",
- "time",
- "tracing",
- "uuid",
- "x509-cert 0.2.5",
- "zeroize",
-]
-
-[[package]]
-name = "isomdl"
-version = "0.1.0"
 source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
 dependencies = [
  "aes",
@@ -2833,8 +2783,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "isomdl"
+version = "0.1.0"
+source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b#d9b5c1b95ac6d53aef9b450d375a23fa03c7c7f9"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "anyhow",
+ "asn1-rs",
+ "async-signature",
+ "base64 0.13.1",
+ "base64-url",
+ "ciborium",
+ "clap",
+ "clap-stdin",
+ "const-oid 0.9.6",
+ "coset",
+ "der 0.7.9",
+ "digest 0.10.7",
+ "ecdsa",
+ "elliptic-curve",
+ "hex",
+ "hex-literal",
+ "hkdf",
+ "hmac",
+ "isomdl-macros 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b)",
+ "jsonwebtokens",
+ "p256",
+ "p384",
+ "pem-rfc7468 0.7.0",
+ "rand",
+ "sec1",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.8",
+ "signature",
+ "ssi-claims-core",
+ "ssi-jwk 0.2.1",
+ "ssi-jws",
+ "strum",
+ "strum_macros",
+ "thiserror 1.0.69",
+ "time",
+ "tracing",
+ "uuid",
+ "x509-cert 0.2.5",
+ "zeroize",
+]
+
+[[package]]
 name = "isomdl-macros"
 version = "0.1.0"
+source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2844,7 +2846,7 @@ dependencies = [
 [[package]]
 name = "isomdl-macros"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
+source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b#d9b5c1b95ac6d53aef9b450d375a23fa03c7c7f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3537,7 +3539,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
- "isomdl 0.1.0",
+ "isomdl 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b)",
  "itertools",
  "josekit",
  "json-syntax",
