@@ -258,27 +258,34 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     println!("kid: {:#?}", kid);
     let did = DIDURL::new(&kid).unwrap();
     let without_fragment = did.without_fragment().0;
+    println!("FRAGMENT: {:#?}", without_fragment.to_string());
     let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
     let domain = &without_fragment[8..];
     println!("did: {:#?}", domain);
     
     let trusted_did_document = dids.get(without_fragment.as_str());
-
+    println!("{:#?}", trusted_did_document);
     let url = format!("https://{domain}/.well-known/did.json");
     println!("{:#?}", url);
     let did_document = reqwest::get(url)
-                        .await
-                        .unwrap()
-                        .text()
                         .await;
 
     let final_did_document = match did_document {
         Ok(resolved_did_document) => {
+            let resolved_did_document_text = match resolved_did_document.text().await {
+                Ok(resolved_did_document_text_value) => {
+                    resolved_did_document_text_value
+                }
+                Err(e) => {
+                    return Err(MDLReaderResponseError::Generic { value: "Failed to parse DID document.".to_string() });
+                }
+            };
+
             if resolve_dids { 
-                resolved_did_document 
+                resolved_did_document_text
             } else { 
                 if trusted_did_document.is_none() {
-                    return Err(MDLReaderResponseError::Generic { value: "Failed to resolve DID Document.".to_string() });
+                    return Err(MDLReaderResponseError::Generic { value: "No local DID stored.".to_string() });
                 } else {
                     trusted_did_document.unwrap().clone()
                 }
@@ -286,7 +293,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
         }
         Err(e) => {
             if trusted_did_document.is_none() {
-                return Err(MDLReaderResponseError::Generic { value: "Failed to resolve DID Document.".to_string() });
+                return Err(MDLReaderResponseError::Generic { value: without_fragment.to_string() });
             } else {
                 trusted_did_document.unwrap().clone()
             }
