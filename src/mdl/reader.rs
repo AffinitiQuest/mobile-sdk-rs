@@ -383,7 +383,10 @@ pub fn get_verified_response(
 
             if issuer_authentication.valid_until != None {
                 println!("Valid until present.");
-                validated_response.response.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
+                let mut valid_until_object = HashMap::new();
+                valid_until_object.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
+                let valid_until_value = serde_json::to_value(&valid_until_object).unwrap();
+                validated_response.response.insert("validUntil".to_string(), valid_until_value);
             }
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
