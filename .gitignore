@@ -13,3 +13,4 @@ Cargo.lock
 .direnv
 .envrc
 **.idea
+kotlin/maven.properties

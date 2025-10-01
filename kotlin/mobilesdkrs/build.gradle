@@ -7,6 +7,16 @@ plugins {
     id 'com.gradleup.nmcp'
 }
 
+// Creates a variable called keystorePropertiesFile, and initializes it to the
+// keystore.properties file.
+def mavenPropertiesFile = rootProject.file("maven.properties")
+
+// Initializes a new Properties() object called keystoreProperties.
+def mavenProperties = new Properties()
+
+// Loads the keystore.properties file into the keystoreProperties object.
+mavenProperties.load(new FileInputStream(mavenPropertiesFile))
+
 android {
     namespace 'com.spruceid.mobile.sdk.rs'
     compileSdk 34
@@ -109,29 +119,30 @@ tasks.register('bindGen', Exec) {
 publishing {
     repositories {
         maven {
-            name = "GitHubPackages"
-            url = "https://maven.pkg.github.com/spruceid/mobile-sdk-rs"
+            name = "affinitiquest-dev"
+            url = "https://pkgs.dev.azure.com/affinitiquest/AffinitiQuest/_packaging/affinitiquest-dev/maven/v1"
             credentials {
-                username = System.getenv("GITHUB_ACTOR")
-                password = System.getenv("GITHUB_TOKEN")
+                username = mavenProperties['maven.username']
+                password = mavenProperties['maven.password']
             }
         }
         mavenLocal()
     }
+
     publications {
         debug(MavenPublication) {
-            groupId = 'com.spruceid.mobile.sdk.rs'
+            groupId = 'com.spruceid.aq.mobile.sdk.rs'
             artifactId = "mobilesdkrs"
-            version = System.getenv("VERSION")
+            version = mavenProperties['maven.version']
 
             afterEvaluate {
                 from components.release
             }
         }
         release(MavenPublication) {
-            groupId = 'com.spruceid.mobile.sdk.rs'
+            groupId = 'com.spruceid.aq.mobile.sdk.rs'
             artifactId = "mobilesdkrs"
-            version = System.getenv("VERSION")
+            version = mavenProperties['maven.version']
 
             afterEvaluate {
                 from components.release
@@ -140,8 +151,8 @@ publishing {
             pom {
                 packaging = "aar"
                 name.set("mobilesdkrs")
-                description.set("Rust layer for SpruceID Mobile SDK")
-                url.set("https://github.com/spruceid/mobile-sdk-rs")
+                description.set("AQ: Rust layer for SpruceID Mobile SDK")
+                url.set("https://github.com/affinitiquest/mobile-sdk-rs")
                 licenses {
                     license {
                         name.set("MIT License")
