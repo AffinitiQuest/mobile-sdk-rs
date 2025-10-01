@@ -7,6 +7,16 @@ plugins {
     id 'com.gradleup.nmcp'
 }
 
+// Creates a variable called keystorePropertiesFile, and initializes it to the
+// keystore.properties file.
+def mavenPropertiesFile = rootProject.file("maven.properties")
+
+// Initializes a new Properties() object called keystoreProperties.
+def mavenProperties = new Properties()
+
+// Loads the keystore.properties file into the keystoreProperties object.
+mavenProperties.load(new FileInputStream(mavenPropertiesFile))
+
 android {
     namespace 'com.spruceid.mobile.sdk.rs'
     compileSdk 34
@@ -112,17 +122,18 @@ publishing {
             name = "affinitiquest-dev"
             url = "https://pkgs.dev.azure.com/affinitiquest/AffinitiQuest/_packaging/affinitiquest-dev/maven/v1"
             credentials {
-                username = System.getenv("AQ_MVN_USERNAME")
-                password = System.getenv("AQ_MVN_PASSWORD")
+                username = mavenProperties['maven.username']
+                password = mavenProperties['maven.password']
             }
         }
         mavenLocal()
     }
+
     publications {
         debug(MavenPublication) {
             groupId = 'com.spruceid.aq.mobile.sdk.rs'
             artifactId = "mobilesdkrs"
-            version = System.getenv("VERSION")
+            version = mavenProperties['maven.version']
 
             afterEvaluate {
                 from components.release
@@ -131,7 +142,7 @@ publishing {
         release(MavenPublication) {
             groupId = 'com.spruceid.aq.mobile.sdk.rs'
             artifactId = "mobilesdkrs"
-            version = System.getenv("VERSION")
+            version = mavenProperties['maven.version']
 
             afterEvaluate {
                 from components.release
