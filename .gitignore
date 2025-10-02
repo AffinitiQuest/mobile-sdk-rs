@@ -9,9 +9,7 @@ jna-*.jar
 kotlin/mobilesdkrs/src/main/java/com/spruceid/mobile/sdk/rs/mobile_sdk_rs.kt
 kotlin/mobilesdkrs/src/main/jniLibs/*
 kotlin/local.properties
-Cargo.lock
 .direnv
 .envrc
 **.idea
 kotlin/maven.properties
-Cargo.lock
