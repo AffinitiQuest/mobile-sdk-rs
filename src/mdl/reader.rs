@@ -251,6 +251,24 @@ pub struct W3CVerificationData {
     pub valid_until: Option<serde_json::Value>
 }
 
+pub fn get_jwt_properties(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponseError> {
+    let jws = Jws::new(&jwt).unwrap();
+    let decoded_jwt = jws.to_decoded_jwt().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get decoded JWT.".to_string() })?;
+    let claims: JWTClaims = decoded_jwt.signing_bytes.payload;// ["payload"]["registered"]["VerifiableCredential"]["credentialSubject"]["id"];
+    let registered_claims = serde_json::json!(claims.registered);
+    let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
+    let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+    let credential_subject = vc["credentialSubject"].clone();
+    let credential_status = vc.get("credentialStatus");
+    let valid_until = vc.get("validUntil");
+    return Ok(W3CVerificationData {
+                    issuer_authentication: false, 
+                    response: credential_subject.clone(),
+                    credential_status: credential_status.cloned(),
+                    valid_until: valid_until.cloned()
+    });
+}
+
 #[tokio::main]
 pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: bool) -> Result<W3CVerificationData, MDLReaderResponseError>  {
     let header = jwt::decode_header(jwt).unwrap();
@@ -278,7 +296,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                     resolved_did_document_text_value
                 }
                 Err(e) => {
-                    return Err(MDLReaderResponseError::Generic { value: "Failed to parse DID document.".to_string() });
+                    return get_jwt_properties(jwt);
                 }
             };
 
@@ -286,7 +304,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 resolved_did_document_text
             } else { 
                 if trusted_did_document.is_none() {
-                    return Err(MDLReaderResponseError::Generic { value: "No local DID stored.".to_string() });
+                    return get_jwt_properties(jwt);
                 } else {
                     trusted_did_document.unwrap().clone()
                 }
@@ -294,7 +312,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
         }
         Err(e) => {
             if trusted_did_document.is_none() {
-                return Err(MDLReaderResponseError::Generic { value: without_fragment.to_string() });
+                return get_jwt_properties(jwt);
             } else {
                 trusted_did_document.unwrap().clone()
             }
@@ -311,22 +329,11 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 let jws = Jws::new(&jwt).unwrap();
                 let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
                 let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse Issuer JWK from DID Document.".to_string() })?;
-                let decoded_jwt = jws.to_decoded_jwt().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get decoded JWT.".to_string() })?;
                 let verification_result = jws.verify(&key).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
-                let claims: JWTClaims = decoded_jwt.signing_bytes.payload;// ["payload"]["registered"]["VerifiableCredential"]["credentialSubject"]["id"];
-                let registered_claims = serde_json::json!(claims.registered);
-                let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
-                let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-                let credential_subject = vc["credentialSubject"].clone();
-                let credential_status = vc.get("credentialStatus");
-                let valid_until = vc.get("validUntil");
-                println!("Credential Status: {:#?}", credential_status);
-                return Ok(W3CVerificationData {
-                    issuer_authentication: verification_result, 
-                    response: credential_subject.clone(),
-                    credential_status: credential_status.cloned(),
-                    valid_until: valid_until.cloned()
-                })
+                let mut jwt_info: W3CVerificationData = get_jwt_properties(jwt)?;
+                jwt_info.issuer_authentication = verification_result;
+                println!("Credential Status: {:#?}", jwt_info.credential_status);
+                return Ok(jwt_info)
             }
         }
     }
@@ -375,22 +382,23 @@ pub fn get_verified_response(
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
             validated_response.response.clear();
-            validated_response.response.insert("all".to_string(), issuer_authentication.response);
-            if issuer_authentication.credential_status != None {
-                println!("Credential status present.");
-                validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
-            }
-
-            if issuer_authentication.valid_until != None {
-                println!("Valid until present.");
-                let mut valid_until_object = HashMap::new();
-                valid_until_object.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
-                let valid_until_value = serde_json::to_value(&valid_until_object).unwrap();
-                validated_response.response.insert("validUntil".to_string(), valid_until_value);
-            }
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
             validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
+        }
+
+        validated_response.response.insert("all".to_string(), issuer_authentication.response);
+        if issuer_authentication.credential_status != None {
+            println!("Credential status present.");
+            validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
+        }
+
+        if issuer_authentication.valid_until != None {
+            println!("Valid until present.");
+            let mut valid_until_object = HashMap::new();
+            valid_until_object.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
+            let valid_until_value = serde_json::to_value(&valid_until_object).unwrap();
+            validated_response.response.insert("validUntil".to_string(), valid_until_value);
         }
     }
 
