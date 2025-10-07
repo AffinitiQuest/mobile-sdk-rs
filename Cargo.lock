@@ -1410,9 +1410,9 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.3.11"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b42b6fa04a440b495c8b04d0e71b707c585f83cb9cb28cf8cd0d976c315e31b4"
+checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
 dependencies = [
  "powerfmt",
  "serde",
@@ -2750,6 +2750,57 @@ dependencies = [
 [[package]]
 name = "isomdl"
 version = "0.1.0"
+source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=3eb8862#3eb8862194c9db60b8981ac6f8b914a3a5f56e11"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "anyhow",
+ "asn1-rs",
+ "async-signature",
+ "base64 0.13.1",
+ "base64-url",
+ "ciborium",
+ "clap",
+ "clap-stdin",
+ "const-oid 0.9.6",
+ "coset",
+ "der 0.7.9",
+ "digest 0.10.7",
+ "ecdsa",
+ "elliptic-curve",
+ "hex",
+ "hex-literal",
+ "hkdf",
+ "hmac",
+ "isomdl-macros 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=3eb8862)",
+ "jsonwebtokens",
+ "p256",
+ "p384",
+ "pem-rfc7468 0.7.0",
+ "rand",
+ "sec1",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.8",
+ "signature",
+ "ssi-claims-core",
+ "ssi-jwk 0.2.1",
+ "ssi-jws",
+ "strum",
+ "strum_macros",
+ "thiserror 1.0.69",
+ "time",
+ "tracing",
+ "uuid",
+ "x509-cert 0.2.5",
+ "zeroize",
+]
+
+[[package]]
+name = "isomdl"
+version = "0.1.0"
 source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
 dependencies = [
  "aes",
@@ -2783,60 +2834,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "isomdl"
-version = "0.1.0"
-source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b#d9b5c1b95ac6d53aef9b450d375a23fa03c7c7f9"
-dependencies = [
- "aes",
- "aes-gcm",
- "anyhow",
- "asn1-rs",
- "async-signature",
- "base64 0.13.1",
- "base64-url",
- "ciborium",
- "clap",
- "clap-stdin",
- "const-oid 0.9.6",
- "coset",
- "der 0.7.9",
- "digest 0.10.7",
- "ecdsa",
- "elliptic-curve",
- "hex",
- "hex-literal",
- "hkdf",
- "hmac",
- "isomdl-macros 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b)",
- "jsonwebtokens",
- "p256",
- "p384",
- "pem-rfc7468 0.7.0",
- "rand",
- "sec1",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha1",
- "sha2 0.10.8",
- "signature",
- "ssi-claims-core",
- "ssi-jwk 0.2.1",
- "ssi-jws",
- "strum",
- "strum_macros",
- "thiserror 1.0.69",
- "time",
- "tracing",
- "uuid",
- "x509-cert 0.2.5",
- "zeroize",
-]
-
-[[package]]
 name = "isomdl-macros"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
+source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=3eb8862#3eb8862194c9db60b8981ac6f8b914a3a5f56e11"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2846,7 +2846,7 @@ dependencies = [
 [[package]]
 name = "isomdl-macros"
 version = "0.1.0"
-source = "git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b#d9b5c1b95ac6d53aef9b450d375a23fa03c7c7f9"
+source = "git+https://github.com/spruceid/isomdl?rev=90ce218#90ce2180a7336715ff4682dcab9bb7cfad898740"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3539,7 +3539,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
- "isomdl 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=d9b5c1b)",
+ "isomdl 0.1.0 (git+https://github.com/affinitiquest/mobile-isomdl?rev=3eb8862)",
  "itertools",
  "josekit",
  "json-syntax",
@@ -6450,9 +6450,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.37"
+version = "0.3.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e7868883861bd0e56d9ac6efcaaca0d6d5d82a2a7ec8209ff492c07cf37b21"
+checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
 dependencies = [
  "deranged",
  "itoa",
@@ -6465,15 +6465,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef927ca75afb808a4d64dd374f00a2adf8d0fcff8e7b184af886c3c87ec4a3f3"
+checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
 
 [[package]]
 name = "time-macros"
-version = "0.2.19"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2834e6017e3e5e4b9834939793b282bc03b37a3336245fa820e35e233e2a85de"
+checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
 dependencies = [
  "num-conv",
  "time-core",
