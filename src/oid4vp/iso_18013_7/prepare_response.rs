@@ -10,7 +10,7 @@ use isomdl::{
         device_signed::{DeviceAuthentication, DeviceNamespaces},
         helpers::{ByteStr, NonEmptyMap, NonEmptyVec, Tag24},
         session::SessionTranscript as SessionTranscriptTrait,
-        DeviceResponse, DeviceSigned, Document, IssuerSigned, IssuerSignedItem,
+        DeviceResponse, DeviceSigned, Document, MdocDocument, IssuerSigned, IssuerSignedItem,
     },
 };
 use openid4vp::core::{
@@ -221,7 +221,7 @@ pub fn prepare_response(
         }
     }
 
-    let document = Document {
+    let document = Document::MsoMdoc(MdocDocument {
         doc_type: mdoc.mso.doc_type.clone(),
         issuer_signed: IssuerSigned {
             issuer_auth: mdoc.issuer_auth.clone(),
@@ -229,14 +229,13 @@ pub fn prepare_response(
         },
         device_signed,
         errors: NonEmptyMap::maybe_new(errors),
-    };
+    });
 
     let documents = NonEmptyVec::new(document);
 
     let response = DeviceResponse {
         version: "1.0".into(),
         documents: Some(documents),
-        w3c_documents: None,
         document_errors: None,
         status: isomdl::definitions::device_response::Status::OK,
     };

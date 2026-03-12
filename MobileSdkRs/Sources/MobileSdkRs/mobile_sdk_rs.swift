@@ -13672,7 +13672,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_default_ld_json_context() != 13685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 54255) {
+    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 5381) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_generate_pop_complete() != 41207) {

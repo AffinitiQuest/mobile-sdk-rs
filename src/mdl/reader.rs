@@ -56,7 +56,7 @@ pub struct MDLReaderSessionData {
 #[uniffi::export]
 pub fn establish_session(
     uri: String,
-    docType: String,
+    doc_type: String,
     format: String,
     requested_items: HashMap<String, HashMap<String, bool>>,
     trust_anchor_registry: Option<Vec<String>>,
@@ -96,7 +96,7 @@ pub fn establish_session(
     })?;
 
     let (manager, request, ble_ident) =
-        reader::SessionManager::establish_session(uri.to_string(), docType, format, namespaces, registry).map_err(
+        reader::SessionManager::establish_session(uri.to_string(), doc_type, format, namespaces, registry).map_err(
             |e| MDLReaderSessionError::Generic {
                 value: format!("unable to establish session: {e:?}"),
             },
@@ -373,7 +373,7 @@ pub fn get_verified_response(
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
         println!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
-        let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let w3c_documents = response.get("document").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         println!("{:#?}", jwt);
@@ -452,6 +452,7 @@ pub async fn handle_response(
 ) -> Result<VerificationResponse, MDLReaderResponseError> {
     let mut state = state.0.clone();
     let validated_responses = state.handle_response(&response);
+    println!("Error: {:#?}", validated_responses);
     println!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
     if validated_responses.responses.len() == 0 {
         return Err(MDLReaderResponseError::Generic { value: "No valid credentials shared.".to_string() });
