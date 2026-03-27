@@ -19,6 +19,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 use ssi_jws::{Jws, JwsSignature};
 use base64_url;
+use sha2::{Sha256, Digest};
 use crate::reader::coset::CoseKeyBuilder;
 //use ssi_claims::ssi_jwt::ToDecodedJwt;
 
@@ -251,29 +252,162 @@ pub struct W3CVerificationData {
     pub valid_until: Option<serde_json::Value>
 }
 
+/// Decode and verify SD-JWT disclosures against the `_sd` hash commitments in the issuer-signed
+/// payload.
+///
+/// For each `~`-separated disclosure string D (everything after the base JWT):
+///   1. Compute `SHA-256(D)` and base64url-encode it.
+///   2. Verify the hash appears in an `_sd` array inside the VC payload — if the hash is not
+///      committed to by the issuer the disclosure is silently dropped (prevents claim injection).
+///   3. Decode D from base64url, parse as `[salt, name, value]`, and add `name → value` to the
+///      output map.
+///
+/// Returns an empty map for plain JWT-VCs (no `~` separators / no `_sd` hashes).
+fn decode_sd_jwt_disclosures(
+    jwt: &str,
+    vc: &serde_json::Map<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let parts: Vec<&str> = jwt.split('~').collect();
+    if parts.len() <= 1 {
+        return HashMap::new();
+    }
+
+    // Collect all _sd hash commitments from known locations in the VC payload.
+    let mut sd_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Location 1: vc.credentialSubject._sd
+    if let Some(serde_json::Value::Object(cs)) = vc.get("credentialSubject") {
+        if let Some(serde_json::Value::Array(sd)) = cs.get("_sd") {
+            for hash in sd {
+                if let Some(h) = hash.as_str() {
+                    sd_hashes.insert(h.to_string());
+                }
+            }
+        }
+    }
+
+    // Location 2: vc._sd (top-level inside the vc claim)
+    if let Some(serde_json::Value::Array(sd)) = vc.get("_sd") {
+        for hash in sd {
+            if let Some(h) = hash.as_str() {
+                sd_hashes.insert(h.to_string());
+            }
+        }
+    }
+
+    // No hash commitments found — cannot verify any disclosure, return empty.
+    if sd_hashes.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut claims = HashMap::new();
+
+    // Disclosures are parts[1..]; the last segment may be a KB-JWT (contains two dots).
+    for disclosure in &parts[1..] {
+        if disclosure.is_empty() {
+            continue;
+        }
+
+        // Step 1: verify the disclosure hash is committed to by the issuer.
+        let hash_bytes = Sha256::digest(disclosure.as_bytes());
+        let hash_b64 = base64_url::encode(&hash_bytes);
+        if !sd_hashes.contains(&hash_b64) {
+            // Not committed to — skip to prevent claim injection.
+            continue;
+        }
+
+        // Step 2: decode and parse as [salt, name, value].
+        if let Ok(decoded) = base64_url::decode(disclosure) {
+            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_slice(&decoded) {
+                if arr.len() == 3 {
+                    if let Some(name) = arr[1].as_str() {
+                        claims.insert(name.to_string(), arr[2].clone());
+                    }
+                }
+            }
+        }
+    }
+
+    claims
+}
+
 pub fn get_jwt_properties(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponseError> {
-    let jws = Jws::new(&jwt).unwrap();
+    // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
+    let base_jwt = jwt.split('~').next().unwrap_or(jwt);
+    let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT.".to_string() })?;
     let decoded_jwt = jws.to_decoded_jwt().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get decoded JWT.".to_string() })?;
-    let claims: JWTClaims = decoded_jwt.signing_bytes.payload;// ["payload"]["registered"]["VerifiableCredential"]["credentialSubject"]["id"];
-    let registered_claims = serde_json::json!(claims.registered);
-    let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
-    let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-    let credential_subject = vc["credentialSubject"].clone();
-    let credential_status = vc.get("credentialStatus");
-    let valid_until = vc.get("validUntil");
+    let claims: JWTClaims = decoded_jwt.signing_bytes.payload;
+    // Serialize the full claims struct (registered + private are both #[serde(flatten)]),
+    // so the resulting object contains all JWT claims including "vc", "vct", "cnf", "_sd", etc.
+    let all_claims = serde_json::to_value(&claims).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to serialize claims.".to_string() })?;
+    let verifiable_credential = all_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
+
+    // Support two credential structures:
+    //  - VCDM 1.1 JWT-VC: claims nested under "vc.credentialSubject"
+    //  - SD-JWT VC (draft-ietf-oauth-sd-jwt-vc): claims at the top level, typed via "vct"
+    let (mut credential_subject, credential_status, valid_until) =
+        if let Some(vc) = verifiable_credential.get("vc").and_then(|v| v.as_object()) {
+            let cs = vc["credentialSubject"].clone();
+            let status = vc.get("credentialStatus").cloned();
+            let until = vc.get("validUntil").cloned();
+            (cs, status, until)
+        } else {
+            // SD-JWT VC: filter out JWT infrastructure claims; the rest are credential claims.
+            const RESERVED: &[&str] = &[
+                "iss", "sub", "aud", "exp", "nbf", "iat", "jti",
+                "cnf", "vct", "_sd", "_sd_alg", "status", "type",
+            ];
+            let cs: serde_json::Map<String, serde_json::Value> = verifiable_credential
+                .iter()
+                .filter(|(k, _)| !RESERVED.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let status = verifiable_credential.get("status").cloned();
+            let until = verifiable_credential.get("exp").cloned();
+            (serde_json::Value::Object(cs), status, until)
+        };
+
+    // For SD-JWTs, decode verified disclosures and merge into the credential subject.
+    // Pass the full JWT payload so _sd hashes at the top level are found.
+    let disclosed_claims = decode_sd_jwt_disclosures(jwt, verifiable_credential);
+    if !disclosed_claims.is_empty() {
+        if let Some(obj) = credential_subject.as_object_mut() {
+            for (key, value) in disclosed_claims {
+                obj.insert(key, value);
+            }
+        }
+    }
+
     return Ok(W3CVerificationData {
-                    issuer_authentication: false, 
-                    response: credential_subject.clone(),
-                    credential_status: credential_status.cloned(),
-                    valid_until: valid_until.cloned()
+                    issuer_authentication: false,
+                    response: credential_subject,
+                    credential_status,
+                    valid_until,
     });
 }
 
 #[tokio::main]
 pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: bool) -> Result<W3CVerificationData, MDLReaderResponseError>  {
-    let header = jwt::decode_header(jwt).unwrap();
+    // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
+    let base_jwt = jwt.split('~').next().unwrap_or(jwt);
+    let header = jwt::decode_header(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to decode JWT header.".to_string() })?;
     println!("header: {:#?}", header);
-    let kid = header.claim("kid").unwrap().as_str().unwrap();
+    // SD-JWT VC: issuer public key is embedded in the "jwk" header claim (no DID resolution needed)
+    if let Some(jwk_val) = header.claim("jwk") {
+        let jwk: ssi::jwk::JWK = serde_json::from_value(jwk_val.clone())
+            .map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWK from header.".to_string() })?;
+        let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
+        let verification_result = jws.verify(&jwk).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
+        let mut jwt_info: W3CVerificationData = get_jwt_properties(jwt)?;
+        jwt_info.issuer_authentication = verification_result;
+        return Ok(jwt_info);
+    }
+
+    // JWT-VC: issuer key referenced via "kid" DID URL
+    let kid = match header.claim("kid").and_then(|v| v.as_str()) {
+        Some(k) => k,
+        None => return get_jwt_properties(jwt),
+    };
     println!("kid: {:#?}", kid);
     let did = DIDURL::new(&kid).unwrap();
     let without_fragment = did.without_fragment().0;
@@ -326,7 +460,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
             println!("{:#?}", fragment_string);
             let key_id = format!("#{fragment_string}");
             if vm["id"] == key_id {
-                let jws = Jws::new(&jwt).unwrap();
+                let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
                 let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
                 let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse Issuer JWK from DID Document.".to_string() })?;
                 let verification_result = jws.verify(&key).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
