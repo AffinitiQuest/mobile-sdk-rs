@@ -386,6 +386,41 @@ pub fn get_jwt_properties(jwt: &str) -> Result<W3CVerificationData, MDLReaderRes
     });
 }
 
+/// Fetch a DID document for a `did:web:` DID, applying the trust/resolve policy.
+///
+/// - `did_without_fragment`: e.g. `did:web:example.com`
+/// - `dids`: pre-trusted DID documents keyed by DID string
+/// - `resolve_dids`: if true, prefer the live-fetched document over the trusted one;
+///   if false, only use the trusted document (live fetch is still attempted so the
+///   caller can tell whether the DID exists, but its content is ignored)
+///
+/// Returns `None` when no document is available (caller should treat as unverified).
+pub async fn fetch_did_document(
+    did_without_fragment: &str,
+    dids: &HashMap<String, String>,
+    resolve_dids: bool,
+) -> Option<String> {
+    let trusted = dids.get(did_without_fragment).cloned();
+
+    if !did_without_fragment.starts_with("did:web:") {
+        return trusted;
+    }
+    let domain = &did_without_fragment[8..];
+    let url = format!("https://{domain}/.well-known/did.json");
+    println!("Fetching DID document from: {url}");
+
+    let fetched_text = match reqwest::get(&url).await {
+        Ok(response) => response.text().await.ok(),
+        Err(_) => None,
+    };
+
+    match (resolve_dids, fetched_text, trusted) {
+        (true, Some(fetched), _) => Some(fetched),
+        (true, None, trusted) => trusted,
+        (false, _, trusted) => trusted,
+    }
+}
+
 #[tokio::main]
 pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: bool) -> Result<W3CVerificationData, MDLReaderResponseError>  {
     // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
@@ -413,46 +448,12 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     let without_fragment = did.without_fragment().0;
     println!("FRAGMENT: {:#?}", without_fragment.to_string());
     let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
-    let domain = &without_fragment[8..];
-    println!("did: {:#?}", domain);
-    
-    let trusted_did_document = dids.get(without_fragment.as_str());
-    println!("{:#?}", trusted_did_document);
-    let url = format!("https://{domain}/.well-known/did.json");
-    println!("{:#?}", url);
-    let did_document = reqwest::get(url)
-                        .await;
 
-    let final_did_document = match did_document {
-        Ok(resolved_did_document) => {
-            let resolved_did_document_text = match resolved_did_document.text().await {
-                Ok(resolved_did_document_text_value) => {
-                    resolved_did_document_text_value
-                }
-                Err(e) => {
-                    return get_jwt_properties(jwt);
-                }
-            };
-
-            if resolve_dids { 
-                resolved_did_document_text
-            } else { 
-                if trusted_did_document.is_none() {
-                    return get_jwt_properties(jwt);
-                } else {
-                    trusted_did_document.unwrap().clone()
-                }
-            }
-        }
-        Err(e) => {
-            if trusted_did_document.is_none() {
-                return get_jwt_properties(jwt);
-            } else {
-                trusted_did_document.unwrap().clone()
-            }
-        }
+    let final_did_document = match fetch_did_document(without_fragment.as_str(), &dids, resolve_dids).await {
+        Some(doc) => doc,
+        None => return get_jwt_properties(jwt),
     };
-    
+
     let json: serde_json::Value = serde_json::from_str(&final_did_document).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse DID Document.".to_string() })?;
     if let Some(vms) = json["verificationMethod"].as_array() {
         for vm in vms {
@@ -472,7 +473,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
         }
     }
     return Ok(W3CVerificationData {
-        issuer_authentication: false, 
+        issuer_authentication: false,
         response: serde_json::to_value(serde_json::Map::new()).unwrap(),
         credential_status: None,
         valid_until: None
@@ -509,9 +510,14 @@ pub fn get_verified_response(
         let response = validated_response.response.clone();
         let w3c_documents = response.get("document").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        println!("{:#?}", jwt);
-        let issuer_authentication = get_jwt(&jwt, dids, resolve_dids).unwrap();
+        let issuer_authentication = if let Some(ldp_vc) = w3c_document.get("ldp_vc") {
+            println!("LDP-VC credential — verifying Data Integrity proof.");
+            crate::mdl::ldp_vc::get_ldp_vc_properties(ldp_vc, dids.clone(), resolve_dids)?
+        } else {
+            let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+            println!("{:#?}", jwt);
+            get_jwt(jwt, dids, resolve_dids)?
+        };
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
