@@ -21,6 +21,8 @@ android {
     namespace 'com.spruceid.mobile.sdk.rs'
     compileSdk 34
 
+    ndkVersion "27.1.12297006"
+
     defaultConfig {
         minSdk 24
 
