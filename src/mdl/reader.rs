@@ -106,7 +106,7 @@ pub fn establish_session(
     let manager2 = manager.clone();
 
     let uuid = manager2.first_peripheral_server_uuid();
-    println!("{:#?}", uuid);
+    log::info!("{:#?}", uuid);
 
     // let qr_code = uri.to_string();
     // let device_engagement_bytes = Tag24::<DeviceEngagement>::from_qr_code_uri(&qr_code)
@@ -247,6 +247,7 @@ pub struct MDLReaderResponseData {
 
 pub struct W3CVerificationData {
     pub issuer_authentication: bool,
+    pub issuer_auth_failure_reason: Option<String>,
     pub response: serde_json::Value,
     pub credential_status: Option<serde_json::Value>,
     pub valid_until: Option<serde_json::Value>
@@ -380,6 +381,7 @@ pub fn get_jwt_properties(jwt: &str) -> Result<W3CVerificationData, MDLReaderRes
 
     return Ok(W3CVerificationData {
                     issuer_authentication: false,
+                    issuer_auth_failure_reason: None,
                     response: credential_subject,
                     credential_status,
                     valid_until,
@@ -407,7 +409,7 @@ pub async fn fetch_did_document(
     }
     let domain = &did_without_fragment[8..];
     let url = format!("https://{domain}/.well-known/did.json");
-    println!("Fetching DID document from: {url}");
+    log::info!("Fetching DID document from: {url}");
 
     let fetched_text = match reqwest::get(&url).await {
         Ok(response) => response.text().await.ok(),
@@ -426,7 +428,6 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
     let base_jwt = jwt.split('~').next().unwrap_or(jwt);
     let header = jwt::decode_header(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to decode JWT header.".to_string() })?;
-    println!("header: {:#?}", header);
     // SD-JWT VC: issuer public key is embedded in the "jwk" header claim (no DID resolution needed)
     if let Some(jwk_val) = header.claim("jwk") {
         let jwk: ssi::jwk::JWK = serde_json::from_value(jwk_val.clone())
@@ -443,10 +444,8 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
         Some(k) => k,
         None => return get_jwt_properties(jwt),
     };
-    println!("kid: {:#?}", kid);
     let did = DIDURL::new(&kid).unwrap();
     let without_fragment = did.without_fragment().0;
-    println!("FRAGMENT: {:#?}", without_fragment.to_string());
     let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
 
     let final_did_document = match fetch_did_document(without_fragment.as_str(), &dids, resolve_dids).await {
@@ -458,7 +457,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     if let Some(vms) = json["verificationMethod"].as_array() {
         for vm in vms {
             let fragment_string = fragment.as_str();
-            println!("{:#?}", fragment_string);
+            log::info!("{:#?}", fragment_string);
             let key_id = format!("#{fragment_string}");
             if vm["id"] == key_id {
                 let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
@@ -467,13 +466,14 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
                 let verification_result = jws.verify(&key).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
                 let mut jwt_info: W3CVerificationData = get_jwt_properties(jwt)?;
                 jwt_info.issuer_authentication = verification_result;
-                println!("Credential Status: {:#?}", jwt_info.credential_status);
+                log::info!("Credential Status: {:#?}", jwt_info.credential_status);
                 return Ok(jwt_info)
             }
         }
     }
     return Ok(W3CVerificationData {
         issuer_authentication: false,
+        issuer_auth_failure_reason: None,
         response: serde_json::to_value(serde_json::Map::new()).unwrap(),
         credential_status: None,
         valid_until: None
@@ -503,19 +503,17 @@ pub fn get_verified_response(
     dids: HashMap<String, String> ,
     resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
-    println!("{:#?}", validated_response_object);
     let mut validated_response = validated_response_object.clone();
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
-        println!("Do W3CJWT verification.");
+        log::info!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
         let w3c_documents = response.get("document").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let issuer_authentication = if let Some(ldp_vc) = w3c_document.get("ldp_vc") {
-            println!("LDP-VC credential — verifying Data Integrity proof.");
+            log::info!("LDP-VC credential — verifying Data Integrity proof.");
             crate::mdl::ldp_vc::get_ldp_vc_properties(ldp_vc, dids.clone(), resolve_dids)?
         } else {
             let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-            println!("{:#?}", jwt);
             get_jwt(jwt, dids, resolve_dids)?
         };
         let verification_result = issuer_authentication.issuer_authentication;
@@ -524,17 +522,19 @@ pub fn get_verified_response(
             validated_response.response.clear();
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
-            validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
+            let reason = issuer_authentication.issuer_auth_failure_reason
+                .unwrap_or_else(|| "Failed to authenticate issuer signature.".to_string());
+            validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!(reason));
         }
 
         validated_response.response.insert("all".to_string(), issuer_authentication.response);
         if issuer_authentication.credential_status != None {
-            println!("Credential status present.");
+            log::info!("Credential status present.");
             validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
         }
 
         if issuer_authentication.valid_until != None {
-            println!("Valid until present.");
+            log::info!("Valid until present.");
             let mut valid_until_object = HashMap::new();
             valid_until_object.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
             let valid_until_value = serde_json::to_value(&valid_until_object).unwrap();
@@ -553,7 +553,7 @@ pub fn get_verified_response(
     } else {
         None
     };
-    println!("{:#?}", errors);
+    log::info!("{:#?}", errors);
     let verified_response: Result<_, _> = validated_response
         .response
         .into_iter()
@@ -592,8 +592,7 @@ pub async fn handle_response(
 ) -> Result<VerificationResponse, MDLReaderResponseError> {
     let mut state = state.0.clone();
     let validated_responses = state.handle_response(&response);
-    println!("Error: {:#?}", validated_responses);
-    println!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
+    log::info!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
     if validated_responses.responses.len() == 0 {
         return Err(MDLReaderResponseError::Generic { value: "No valid credentials shared.".to_string() });
     }
