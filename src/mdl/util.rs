@@ -98,8 +98,7 @@ fn generate_test_mdl_inner(
                     namespace,
                     NonEmptyMap::maybe_new(
                         elements
-                            .into_inner()
-                            .into_iter()
+                            .into_iter() // COMPILE FIX: was .into_inner().into_iter() when elements was NonEmptyVec
                             .map(|element| (element.as_ref().element_identifier.clone(), element))
                             .collect(),
                     )

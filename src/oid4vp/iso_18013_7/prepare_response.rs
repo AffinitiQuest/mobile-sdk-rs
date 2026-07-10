@@ -124,7 +124,10 @@ pub fn prepare_response(
 ) -> Result<DeviceResponse> {
     let mdoc = credential.document();
 
-    let mut revealed_namespaces: BTreeMap<String, NonEmptyVec<Tag24<IssuerSignedItem>>> =
+    // COMPILE FIX: IssuerNamespaces now uses Vec instead of NonEmptyVec. This code only ever
+    // inserts non-empty Vecs (first insert via vec![element], subsequent via push), so the
+    // non-empty invariant is preserved at runtime even without the type-level guarantee.
+    let mut revealed_namespaces: BTreeMap<String, Vec<Tag24<IssuerSignedItem>>> =
         BTreeMap::new();
 
     for field in approved_fields {
@@ -141,11 +144,11 @@ pub fn prepare_response(
         if let Some(items) = revealed_namespaces.get_mut(&namespace) {
             items.push(element);
         } else {
-            revealed_namespaces.insert(namespace, NonEmptyVec::new(element));
+            revealed_namespaces.insert(namespace, vec![element]);
         }
     }
 
-    let revealed_namespaces: NonEmptyMap<String, NonEmptyVec<Tag24<IssuerSignedItem>>> =
+    let revealed_namespaces: NonEmptyMap<String, Vec<Tag24<IssuerSignedItem>>> =
         NonEmptyMap::maybe_new(revealed_namespaces).context("no approved fields")?;
 
     let device_namespaces = Tag24::new(DeviceNamespaces::new())

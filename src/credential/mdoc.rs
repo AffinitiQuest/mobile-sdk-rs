@@ -138,12 +138,11 @@ impl Mdoc {
             .into_iter()
             .map(|(k, v)| {
                 let m = v
-                    .into_inner()
-                    .into_iter()
+                    .into_iter() // COMPILE FIX: was .into_inner().into_iter() when v was NonEmptyVec; now plain Vec
                     .map(|i| (i.as_ref().element_identifier.clone(), i))
                     .collect::<BTreeMap<_, _>>()
                     .try_into()
-                    // Unwrap safety: safe to convert BTreeMap to NonEmptyMap since we're iterating over a NonEmptyVec.
+                    // Unwrap safety: Mdoc issuance guarantees each namespace has at least one item.
                     .unwrap();
                 (k, m)
             })
