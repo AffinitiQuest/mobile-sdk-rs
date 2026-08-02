@@ -243,6 +243,10 @@ pub struct MDLReaderResponseData {
     pub device_authentication: AuthenticationStatus,
     /// Errors that occurred during response processing.
     pub errors: Option<String>,
+    /// Decoded OID4VCI CredentialIssuerMetadata JSON payload, if the wallet included signed metadata.
+    pub signed_issuer_metadata: Option<String>,
+    /// Whether the signed issuer metadata JWS signature was verified. None = not present or not attempted.
+    pub issuer_metadata_signature_verified: Option<bool>,
 }
 
 pub struct W3CVerificationData {
@@ -480,6 +484,24 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
     });
 }
 
+/// Validate that the signed issuer metadata field is a well-formed compact JWS and pass the raw
+/// JWS string to the JS layer. Signature verification is handled entirely in JS via
+/// FederationTrustService using @pagopa/io-react-native-jwt.
+/// Returns (raw_jws, None) — the bool slot is always None since JS owns verification.
+pub fn verify_metadata_jws(
+    jws_str: &str,
+    _dids: &HashMap<String, String>,
+    _resolve_dids: bool,
+) -> (Option<String>, Option<bool>) {
+    let parts: Vec<&str> = jws_str.splitn(3, '.').collect();
+    if parts.len() != 3 {
+        log::warn!("[verify_metadata_jws] malformed JWS — not 3 parts");
+        return (None, None);
+    }
+    log::info!("[verify_metadata_jws] passing raw JWS to JS layer, length={}", jws_str.len());
+    (Some(jws_str.to_string()), None)
+}
+
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct VerificationResponse {
     responses: Vec<MDLReaderResponseData>
@@ -503,6 +525,7 @@ pub fn get_verified_response(
     dids: HashMap<String, String> ,
     resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
+    log::info!("[get_verified_response] signed_issuer_metadata present: {}", validated_response_object.signed_issuer_metadata.is_some());
     let mut validated_response = validated_response_object.clone();
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
         log::info!("Do W3CJWT verification.");
@@ -514,7 +537,7 @@ pub fn get_verified_response(
             crate::mdl::ldp_vc::get_ldp_vc_properties(ldp_vc, dids.clone(), resolve_dids)?
         } else {
             let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-            get_jwt(jwt, dids, resolve_dids)?
+            get_jwt(jwt, dids.clone(), resolve_dids)?
         };
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
@@ -574,12 +597,27 @@ pub fn get_verified_response(
     let verified_response = verified_response.map_err(|e| MDLReaderResponseError::Generic {
         value: format!("Unable to parse response: {e:?}"),
     })?;
+    let (signed_issuer_metadata, issuer_metadata_signature_verified) =
+        match validated_response.signed_issuer_metadata.as_deref() {
+            Some(jws) => {
+                log::info!("[get_verified_response] passing metadata JWS to JS, length={}", jws.len());
+                verify_metadata_jws(jws, &dids, resolve_dids)
+            },
+            None => {
+                log::info!("[get_verified_response] no signed_issuer_metadata in validated_response");
+                (None, None)
+            },
+        };
+    log::info!("[get_verified_response] final: signed_issuer_metadata present={}, verified={:?}", signed_issuer_metadata.is_some(), issuer_metadata_signature_verified);
+
     Ok(MDLReaderResponseData {
         state: Arc::new(MDLSessionManager(state)),
         verified_response,
         issuer_authentication: AuthenticationStatus::from(validated_response.issuer_authentication),
         device_authentication: AuthenticationStatus::from(validated_response.device_authentication),
         errors,
+        signed_issuer_metadata,
+        issuer_metadata_signature_verified,
     })
 }
 

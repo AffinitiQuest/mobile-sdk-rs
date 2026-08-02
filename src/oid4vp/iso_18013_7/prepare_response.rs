@@ -232,6 +232,7 @@ pub fn prepare_response(
         },
         device_signed,
         errors: NonEmptyMap::maybe_new(errors),
+        signed_issuer_metadata: None,
     });
 
     let documents = NonEmptyVec::new(document);
