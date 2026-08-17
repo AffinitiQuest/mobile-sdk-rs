@@ -19,6 +19,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 use ssi_jws::{Jws, JwsSignature};
 use base64_url;
+use sha2::{Sha256, Digest};
 use crate::reader::coset::CoseKeyBuilder;
 //use ssi_claims::ssi_jwt::ToDecodedJwt;
 
@@ -56,7 +57,7 @@ pub struct MDLReaderSessionData {
 #[uniffi::export]
 pub fn establish_session(
     uri: String,
-    docType: String,
+    doc_type: String,
     format: String,
     requested_items: HashMap<String, HashMap<String, bool>>,
     trust_anchor_registry: Option<Vec<String>>,
@@ -96,7 +97,7 @@ pub fn establish_session(
     })?;
 
     let (manager, request, ble_ident) =
-        reader::SessionManager::establish_session(uri.to_string(), docType, format, namespaces, registry).map_err(
+        reader::SessionManager::establish_session(uri.to_string(), doc_type, format, namespaces, registry).map_err(
             |e| MDLReaderSessionError::Generic {
                 value: format!("unable to establish session: {e:?}"),
             },
@@ -105,7 +106,7 @@ pub fn establish_session(
     let manager2 = manager.clone();
 
     let uuid = manager2.first_peripheral_server_uuid();
-    println!("{:#?}", uuid);
+    log::info!("{:#?}", uuid);
 
     // let qr_code = uri.to_string();
     // let device_engagement_bytes = Tag24::<DeviceEngagement>::from_qr_code_uri(&qr_code)
@@ -242,107 +243,263 @@ pub struct MDLReaderResponseData {
     pub device_authentication: AuthenticationStatus,
     /// Errors that occurred during response processing.
     pub errors: Option<String>,
+    /// Decoded OID4VCI CredentialIssuerMetadata JSON payload, if the wallet included signed metadata.
+    pub signed_issuer_metadata: Option<String>,
+    /// Whether the signed issuer metadata JWS signature was verified. None = not present or not attempted.
+    pub issuer_metadata_signature_verified: Option<bool>,
 }
 
 pub struct W3CVerificationData {
     pub issuer_authentication: bool,
+    pub issuer_auth_failure_reason: Option<String>,
     pub response: serde_json::Value,
     pub credential_status: Option<serde_json::Value>,
     pub valid_until: Option<serde_json::Value>
 }
 
+/// Decode and verify SD-JWT disclosures against the `_sd` hash commitments in the issuer-signed
+/// payload.
+///
+/// For each `~`-separated disclosure string D (everything after the base JWT):
+///   1. Compute `SHA-256(D)` and base64url-encode it.
+///   2. Verify the hash appears in an `_sd` array inside the VC payload — if the hash is not
+///      committed to by the issuer the disclosure is silently dropped (prevents claim injection).
+///   3. Decode D from base64url, parse as `[salt, name, value]`, and add `name → value` to the
+///      output map.
+///
+/// Returns an empty map for plain JWT-VCs (no `~` separators / no `_sd` hashes).
+fn decode_sd_jwt_disclosures(
+    jwt: &str,
+    vc: &serde_json::Map<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let parts: Vec<&str> = jwt.split('~').collect();
+    if parts.len() <= 1 {
+        return HashMap::new();
+    }
+
+    // Collect all _sd hash commitments from known locations in the VC payload.
+    let mut sd_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Location 1: vc.credentialSubject._sd
+    if let Some(serde_json::Value::Object(cs)) = vc.get("credentialSubject") {
+        if let Some(serde_json::Value::Array(sd)) = cs.get("_sd") {
+            for hash in sd {
+                if let Some(h) = hash.as_str() {
+                    sd_hashes.insert(h.to_string());
+                }
+            }
+        }
+    }
+
+    // Location 2: vc._sd (top-level inside the vc claim)
+    if let Some(serde_json::Value::Array(sd)) = vc.get("_sd") {
+        for hash in sd {
+            if let Some(h) = hash.as_str() {
+                sd_hashes.insert(h.to_string());
+            }
+        }
+    }
+
+    // No hash commitments found — cannot verify any disclosure, return empty.
+    if sd_hashes.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut claims = HashMap::new();
+
+    // Disclosures are parts[1..]; the last segment may be a KB-JWT (contains two dots).
+    for disclosure in &parts[1..] {
+        if disclosure.is_empty() {
+            continue;
+        }
+
+        // Step 1: verify the disclosure hash is committed to by the issuer.
+        let hash_bytes = Sha256::digest(disclosure.as_bytes());
+        let hash_b64 = base64_url::encode(&hash_bytes);
+        if !sd_hashes.contains(&hash_b64) {
+            // Not committed to — skip to prevent claim injection.
+            continue;
+        }
+
+        // Step 2: decode and parse as [salt, name, value].
+        if let Ok(decoded) = base64_url::decode(disclosure) {
+            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_slice(&decoded) {
+                if arr.len() == 3 {
+                    if let Some(name) = arr[1].as_str() {
+                        claims.insert(name.to_string(), arr[2].clone());
+                    }
+                }
+            }
+        }
+    }
+
+    claims
+}
+
 pub fn get_jwt_properties(jwt: &str) -> Result<W3CVerificationData, MDLReaderResponseError> {
-    let jws = Jws::new(&jwt).unwrap();
+    // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
+    let base_jwt = jwt.split('~').next().unwrap_or(jwt);
+    let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT.".to_string() })?;
     let decoded_jwt = jws.to_decoded_jwt().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to get decoded JWT.".to_string() })?;
-    let claims: JWTClaims = decoded_jwt.signing_bytes.payload;// ["payload"]["registered"]["VerifiableCredential"]["credentialSubject"]["id"];
-    let registered_claims = serde_json::json!(claims.registered);
-    let verifiable_credential = registered_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
-    let vc = verifiable_credential["vc"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-    let credential_subject = vc["credentialSubject"].clone();
-    let credential_status = vc.get("credentialStatus");
-    let valid_until = vc.get("validUntil");
+    let claims: JWTClaims = decoded_jwt.signing_bytes.payload;
+    // Serialize the full claims struct (registered + private are both #[serde(flatten)]),
+    // so the resulting object contains all JWT claims including "vc", "vct", "cnf", "_sd", etc.
+    let all_claims = serde_json::to_value(&claims).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to serialize claims.".to_string() })?;
+    let verifiable_credential = all_claims.as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to parse claims.".to_string() })?;
+
+    // Support two credential structures:
+    //  - VCDM 1.1 JWT-VC: claims nested under "vc.credentialSubject"
+    //  - SD-JWT VC (draft-ietf-oauth-sd-jwt-vc): claims at the top level, typed via "vct"
+    let (mut credential_subject, credential_status, valid_until) =
+        if let Some(vc) = verifiable_credential.get("vc").and_then(|v| v.as_object()) {
+            let cs = vc["credentialSubject"].clone();
+            let status = vc.get("credentialStatus").cloned();
+            let until = vc.get("validUntil").cloned();
+            (cs, status, until)
+        } else {
+            // SD-JWT VC: filter out JWT infrastructure claims; the rest are credential claims.
+            const RESERVED: &[&str] = &[
+                "iss", "sub", "aud", "exp", "nbf", "iat", "jti",
+                "cnf", "vct", "_sd", "_sd_alg", "status", "type",
+            ];
+            let cs: serde_json::Map<String, serde_json::Value> = verifiable_credential
+                .iter()
+                .filter(|(k, _)| !RESERVED.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let status = verifiable_credential.get("status").cloned();
+            let until = verifiable_credential.get("exp").cloned();
+            (serde_json::Value::Object(cs), status, until)
+        };
+
+    // For SD-JWTs, decode verified disclosures and merge into the credential subject.
+    // Pass the full JWT payload so _sd hashes at the top level are found.
+    let disclosed_claims = decode_sd_jwt_disclosures(jwt, verifiable_credential);
+    if !disclosed_claims.is_empty() {
+        if let Some(obj) = credential_subject.as_object_mut() {
+            for (key, value) in disclosed_claims {
+                obj.insert(key, value);
+            }
+        }
+    }
+
     return Ok(W3CVerificationData {
-                    issuer_authentication: false, 
-                    response: credential_subject.clone(),
-                    credential_status: credential_status.cloned(),
-                    valid_until: valid_until.cloned()
+                    issuer_authentication: false,
+                    issuer_auth_failure_reason: None,
+                    response: credential_subject,
+                    credential_status,
+                    valid_until,
     });
+}
+
+/// Fetch a DID document for a `did:web:` DID, applying the trust/resolve policy.
+///
+/// - `did_without_fragment`: e.g. `did:web:example.com`
+/// - `dids`: pre-trusted DID documents keyed by DID string
+/// - `resolve_dids`: if true, prefer the live-fetched document over the trusted one;
+///   if false, only use the trusted document (live fetch is still attempted so the
+///   caller can tell whether the DID exists, but its content is ignored)
+///
+/// Returns `None` when no document is available (caller should treat as unverified).
+pub async fn fetch_did_document(
+    did_without_fragment: &str,
+    dids: &HashMap<String, String>,
+    resolve_dids: bool,
+) -> Option<String> {
+    let trusted = dids.get(did_without_fragment).cloned();
+
+    if !did_without_fragment.starts_with("did:web:") {
+        return trusted;
+    }
+    let domain = &did_without_fragment[8..];
+    let url = format!("https://{domain}/.well-known/did.json");
+    log::info!("Fetching DID document from: {url}");
+
+    let fetched_text = match reqwest::get(&url).await {
+        Ok(response) => response.text().await.ok(),
+        Err(_) => None,
+    };
+
+    match (resolve_dids, fetched_text, trusted) {
+        (true, Some(fetched), _) => Some(fetched),
+        (true, None, trusted) => trusted,
+        (false, _, trusted) => trusted,
+    }
 }
 
 #[tokio::main]
 pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: bool) -> Result<W3CVerificationData, MDLReaderResponseError>  {
-    let header = jwt::decode_header(jwt).unwrap();
-    println!("header: {:#?}", header);
-    let kid = header.claim("kid").unwrap().as_str().unwrap();
-    println!("kid: {:#?}", kid);
+    // SD-JWT format: base_jwt~disclosure1~...~kb_jwt — parse only the base JWT.
+    let base_jwt = jwt.split('~').next().unwrap_or(jwt);
+    let header = jwt::decode_header(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to decode JWT header.".to_string() })?;
+    // SD-JWT VC: issuer public key is embedded in the "jwk" header claim (no DID resolution needed)
+    if let Some(jwk_val) = header.claim("jwk") {
+        let jwk: ssi::jwk::JWK = serde_json::from_value(jwk_val.clone())
+            .map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWK from header.".to_string() })?;
+        let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
+        let verification_result = jws.verify(&jwk).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
+        let mut jwt_info: W3CVerificationData = get_jwt_properties(jwt)?;
+        jwt_info.issuer_authentication = verification_result;
+        return Ok(jwt_info);
+    }
+
+    // JWT-VC: issuer key referenced via "kid" DID URL
+    let kid = match header.claim("kid").and_then(|v| v.as_str()) {
+        Some(k) => k,
+        None => return get_jwt_properties(jwt),
+    };
     let did = DIDURL::new(&kid).unwrap();
     let without_fragment = did.without_fragment().0;
-    println!("FRAGMENT: {:#?}", without_fragment.to_string());
     let fragment = did.without_fragment().1.ok_or(MDLReaderResponseError::Generic { value: "Failed to get key fragment from DID.".to_string() })?;
-    let domain = &without_fragment[8..];
-    println!("did: {:#?}", domain);
-    
-    let trusted_did_document = dids.get(without_fragment.as_str());
-    println!("{:#?}", trusted_did_document);
-    let url = format!("https://{domain}/.well-known/did.json");
-    println!("{:#?}", url);
-    let did_document = reqwest::get(url)
-                        .await;
 
-    let final_did_document = match did_document {
-        Ok(resolved_did_document) => {
-            let resolved_did_document_text = match resolved_did_document.text().await {
-                Ok(resolved_did_document_text_value) => {
-                    resolved_did_document_text_value
-                }
-                Err(e) => {
-                    return get_jwt_properties(jwt);
-                }
-            };
-
-            if resolve_dids { 
-                resolved_did_document_text
-            } else { 
-                if trusted_did_document.is_none() {
-                    return get_jwt_properties(jwt);
-                } else {
-                    trusted_did_document.unwrap().clone()
-                }
-            }
-        }
-        Err(e) => {
-            if trusted_did_document.is_none() {
-                return get_jwt_properties(jwt);
-            } else {
-                trusted_did_document.unwrap().clone()
-            }
-        }
+    let final_did_document = match fetch_did_document(without_fragment.as_str(), &dids, resolve_dids).await {
+        Some(doc) => doc,
+        None => return get_jwt_properties(jwt),
     };
-    
+
     let json: serde_json::Value = serde_json::from_str(&final_did_document).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse DID Document.".to_string() })?;
     if let Some(vms) = json["verificationMethod"].as_array() {
         for vm in vms {
             let fragment_string = fragment.as_str();
-            println!("{:#?}", fragment_string);
+            log::info!("{:#?}", fragment_string);
             let key_id = format!("#{fragment_string}");
             if vm["id"] == key_id {
-                let jws = Jws::new(&jwt).unwrap();
+                let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
                 let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
                 let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse Issuer JWK from DID Document.".to_string() })?;
                 let verification_result = jws.verify(&key).await.map_err(|_| MDLReaderResponseError::Generic { value: "Failed to verify credential signature.".to_string() })?.is_ok();
                 let mut jwt_info: W3CVerificationData = get_jwt_properties(jwt)?;
                 jwt_info.issuer_authentication = verification_result;
-                println!("Credential Status: {:#?}", jwt_info.credential_status);
+                log::info!("Credential Status: {:#?}", jwt_info.credential_status);
                 return Ok(jwt_info)
             }
         }
     }
     return Ok(W3CVerificationData {
-        issuer_authentication: false, 
+        issuer_authentication: false,
+        issuer_auth_failure_reason: None,
         response: serde_json::to_value(serde_json::Map::new()).unwrap(),
         credential_status: None,
         valid_until: None
     });
+}
+
+/// Validate that the signed issuer metadata field is a well-formed compact JWS and pass the raw
+/// JWS string to the JS layer. Signature verification is handled entirely in JS via
+/// FederationTrustService using @pagopa/io-react-native-jwt.
+/// Returns (raw_jws, None) — the bool slot is always None since JS owns verification.
+pub fn verify_metadata_jws(
+    jws_str: &str,
+    _dids: &HashMap<String, String>,
+    _resolve_dids: bool,
+) -> (Option<String>, Option<bool>) {
+    let parts: Vec<&str> = jws_str.splitn(3, '.').collect();
+    if parts.len() != 3 {
+        log::warn!("[verify_metadata_jws] malformed JWS — not 3 parts");
+        return (None, None);
+    }
+    log::info!("[verify_metadata_jws] passing raw JWS to JS layer, length={}", jws_str.len());
+    (Some(jws_str.to_string()), None)
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
@@ -368,33 +525,39 @@ pub fn get_verified_response(
     dids: HashMap<String, String> ,
     resolve_dids: bool
 ) -> Result<MDLReaderResponseData, MDLReaderResponseError> {
-    println!("{:#?}", validated_response_object);
+    log::info!("[get_verified_response] signed_issuer_metadata present: {}", validated_response_object.signed_issuer_metadata.is_some());
     let mut validated_response = validated_response_object.clone();
     if AuthenticationStatus::from(validated_response.issuer_authentication) == AuthenticationStatus::Unchecked {
-        println!("Do W3CJWT verification.");
+        log::info!("Do W3CJWT verification.");
         let response = validated_response.response.clone();
-        let w3c_documents = response.get("w3c_documents").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+        let w3c_documents = response.get("document").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
         let w3c_document:BTreeMap<String, String> = serde_json::from_value(w3c_documents.clone()).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
-        println!("{:#?}", jwt);
-        let issuer_authentication = get_jwt(&jwt, dids, resolve_dids).unwrap();
+        let issuer_authentication = if let Some(ldp_vc) = w3c_document.get("ldp_vc") {
+            log::info!("LDP-VC credential — verifying Data Integrity proof.");
+            crate::mdl::ldp_vc::get_ldp_vc_properties(ldp_vc, dids.clone(), resolve_dids)?
+        } else {
+            let jwt = w3c_document.get("jwt").ok_or(MDLReaderResponseError::Generic { value: "Failed to retrieve claims.".to_string() })?;
+            get_jwt(jwt, dids.clone(), resolve_dids)?
+        };
         let verification_result = issuer_authentication.issuer_authentication;
         if(verification_result) {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Valid;
             validated_response.response.clear();
         } else {
             validated_response.issuer_authentication = IsoMdlAuthenticationStatus::Invalid;
-            validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!("Failed to authenticate issuer signature.".to_string()));
+            let reason = issuer_authentication.issuer_auth_failure_reason
+                .unwrap_or_else(|| "Failed to authenticate issuer signature.".to_string());
+            validated_response.errors.insert("Issuer Validation Error".to_string(), serde_json::json!(reason));
         }
 
         validated_response.response.insert("all".to_string(), issuer_authentication.response);
         if issuer_authentication.credential_status != None {
-            println!("Credential status present.");
+            log::info!("Credential status present.");
             validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
         }
 
         if issuer_authentication.valid_until != None {
-            println!("Valid until present.");
+            log::info!("Valid until present.");
             let mut valid_until_object = HashMap::new();
             valid_until_object.insert("validUntil".to_string(), issuer_authentication.valid_until.unwrap());
             let valid_until_value = serde_json::to_value(&valid_until_object).unwrap();
@@ -413,7 +576,7 @@ pub fn get_verified_response(
     } else {
         None
     };
-    println!("{:#?}", errors);
+    log::info!("{:#?}", errors);
     let verified_response: Result<_, _> = validated_response
         .response
         .into_iter()
@@ -434,12 +597,27 @@ pub fn get_verified_response(
     let verified_response = verified_response.map_err(|e| MDLReaderResponseError::Generic {
         value: format!("Unable to parse response: {e:?}"),
     })?;
+    let (signed_issuer_metadata, issuer_metadata_signature_verified) =
+        match validated_response.signed_issuer_metadata.as_deref() {
+            Some(jws) => {
+                log::info!("[get_verified_response] passing metadata JWS to JS, length={}", jws.len());
+                verify_metadata_jws(jws, &dids, resolve_dids)
+            },
+            None => {
+                log::info!("[get_verified_response] no signed_issuer_metadata in validated_response");
+                (None, None)
+            },
+        };
+    log::info!("[get_verified_response] final: signed_issuer_metadata present={}, verified={:?}", signed_issuer_metadata.is_some(), issuer_metadata_signature_verified);
+
     Ok(MDLReaderResponseData {
         state: Arc::new(MDLSessionManager(state)),
         verified_response,
         issuer_authentication: AuthenticationStatus::from(validated_response.issuer_authentication),
         device_authentication: AuthenticationStatus::from(validated_response.device_authentication),
         errors,
+        signed_issuer_metadata,
+        issuer_metadata_signature_verified,
     })
 }
 
@@ -452,7 +630,7 @@ pub async fn handle_response(
 ) -> Result<VerificationResponse, MDLReaderResponseError> {
     let mut state = state.0.clone();
     let validated_responses = state.handle_response(&response);
-    println!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
+    log::info!("Number of parsed responses: {:#?}", validated_responses.responses.len().to_string());
     if validated_responses.responses.len() == 0 {
         return Err(MDLReaderResponseError::Generic { value: "No valid credentials shared.".to_string() });
     }

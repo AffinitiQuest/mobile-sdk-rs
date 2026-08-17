@@ -1,4 +1,5 @@
 pub mod holder;
+pub mod ldp_vc;
 pub mod reader;
 pub mod util;
 

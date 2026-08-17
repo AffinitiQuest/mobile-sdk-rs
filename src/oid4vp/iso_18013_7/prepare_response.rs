@@ -10,7 +10,7 @@ use isomdl::{
         device_signed::{DeviceAuthentication, DeviceNamespaces},
         helpers::{ByteStr, NonEmptyMap, NonEmptyVec, Tag24},
         session::SessionTranscript as SessionTranscriptTrait,
-        DeviceResponse, DeviceSigned, Document, IssuerSigned, IssuerSignedItem,
+        DeviceResponse, DeviceSigned, Document, MdocDocument, IssuerSigned, IssuerSignedItem,
     },
 };
 use openid4vp::core::{
@@ -124,7 +124,10 @@ pub fn prepare_response(
 ) -> Result<DeviceResponse> {
     let mdoc = credential.document();
 
-    let mut revealed_namespaces: BTreeMap<String, NonEmptyVec<Tag24<IssuerSignedItem>>> =
+    // COMPILE FIX: IssuerNamespaces now uses Vec instead of NonEmptyVec. This code only ever
+    // inserts non-empty Vecs (first insert via vec![element], subsequent via push), so the
+    // non-empty invariant is preserved at runtime even without the type-level guarantee.
+    let mut revealed_namespaces: BTreeMap<String, Vec<Tag24<IssuerSignedItem>>> =
         BTreeMap::new();
 
     for field in approved_fields {
@@ -141,11 +144,11 @@ pub fn prepare_response(
         if let Some(items) = revealed_namespaces.get_mut(&namespace) {
             items.push(element);
         } else {
-            revealed_namespaces.insert(namespace, NonEmptyVec::new(element));
+            revealed_namespaces.insert(namespace, vec![element]);
         }
     }
 
-    let revealed_namespaces: NonEmptyMap<String, NonEmptyVec<Tag24<IssuerSignedItem>>> =
+    let revealed_namespaces: NonEmptyMap<String, Vec<Tag24<IssuerSignedItem>>> =
         NonEmptyMap::maybe_new(revealed_namespaces).context("no approved fields")?;
 
     let device_namespaces = Tag24::new(DeviceNamespaces::new())
@@ -221,7 +224,7 @@ pub fn prepare_response(
         }
     }
 
-    let document = Document {
+    let document = Document::MsoMdoc(MdocDocument {
         doc_type: mdoc.mso.doc_type.clone(),
         issuer_signed: IssuerSigned {
             issuer_auth: mdoc.issuer_auth.clone(),
@@ -229,14 +232,14 @@ pub fn prepare_response(
         },
         device_signed,
         errors: NonEmptyMap::maybe_new(errors),
-    };
+        signed_issuer_metadata: None,
+    });
 
     let documents = NonEmptyVec::new(document);
 
     let response = DeviceResponse {
         version: "1.0".into(),
         documents: Some(documents),
-        w3c_documents: None,
         document_errors: None,
         status: isomdl::definitions::device_response::Status::OK,
     };

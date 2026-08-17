@@ -7512,7 +7512,7 @@ public func FfiConverterTypeItemsRequest_lower(_ value: ItemsRequest) -> RustBuf
 }
 
 
-public struct MdlReaderResponseData: Encodable {
+public struct MdlReaderResponseData {
     public var state: MdlSessionManager
     /**
      * Contains the namespaces for the mDL directly, without top-level doc types
@@ -7530,31 +7530,43 @@ public struct MdlReaderResponseData: Encodable {
      * Errors that occurred during response processing.
      */
     public var errors: String?
+    /**
+     * Decoded OID4VCI CredentialIssuerMetadata JSON payload, if the wallet included signed metadata.
+     */
+    public var signedIssuerMetadata: String?
+    /**
+     * Whether the signed issuer metadata JWS signature was verified. None = not present or not attempted.
+     */
+    public var issuerMetadataSignatureVerified: Bool?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(state: MdlSessionManager,
+    public init(state: MdlSessionManager, 
         /**
          * Contains the namespaces for the mDL directly, without top-level doc types
-         */verifiedResponse: [String: [String: MDocItem]],
+         */verifiedResponse: [String: [String: MDocItem]], 
         /**
          * Outcome of issuer authentication.
-         */issuerAuthentication: AuthenticationStatus,
+         */issuerAuthentication: AuthenticationStatus, 
         /**
          * Outcome of device authentication.
-         */deviceAuthentication: AuthenticationStatus,
+         */deviceAuthentication: AuthenticationStatus, 
         /**
          * Errors that occurred during response processing.
-         */errors: String?) {
+         */errors: String?, 
+        /**
+         * Decoded OID4VCI CredentialIssuerMetadata JSON payload, if the wallet included signed metadata.
+         */signedIssuerMetadata: String?, 
+        /**
+         * Whether the signed issuer metadata JWS signature was verified. None = not present or not attempted.
+         */issuerMetadataSignatureVerified: Bool?) {
         self.state = state
         self.verifiedResponse = verifiedResponse
         self.issuerAuthentication = issuerAuthentication
         self.deviceAuthentication = deviceAuthentication
         self.errors = errors
-    }
-    
-    private enum CodingKeys: String, CodingKey {
-        case verifiedResponse, issuerAuthentication, deviceAuthentication, errors
+        self.signedIssuerMetadata = signedIssuerMetadata
+        self.issuerMetadataSignatureVerified = issuerMetadataSignatureVerified
     }
 }
 
@@ -7568,7 +7580,9 @@ public struct FfiConverterTypeMDLReaderResponseData: FfiConverterRustBuffer {
                 verifiedResponse: FfiConverterDictionaryStringDictionaryStringTypeMDocItem.read(from: &buf), 
                 issuerAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf), 
                 deviceAuthentication: FfiConverterTypeAuthenticationStatus.read(from: &buf), 
-                errors: FfiConverterOptionString.read(from: &buf)
+                errors: FfiConverterOptionString.read(from: &buf), 
+                signedIssuerMetadata: FfiConverterOptionString.read(from: &buf), 
+                issuerMetadataSignatureVerified: FfiConverterOptionBool.read(from: &buf)
         )
     }
 
@@ -7578,6 +7592,8 @@ public struct FfiConverterTypeMDLReaderResponseData: FfiConverterRustBuffer {
         FfiConverterTypeAuthenticationStatus.write(value.issuerAuthentication, into: &buf)
         FfiConverterTypeAuthenticationStatus.write(value.deviceAuthentication, into: &buf)
         FfiConverterOptionString.write(value.errors, into: &buf)
+        FfiConverterOptionString.write(value.signedIssuerMetadata, into: &buf)
+        FfiConverterOptionBool.write(value.issuerMetadataSignatureVerified, into: &buf)
     }
 }
 
@@ -8010,11 +8026,11 @@ public func FfiConverterTypeVerificationResponse_lower(_ value: VerificationResp
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum AuthenticationStatus: String, Codable {
+public enum AuthenticationStatus {
     
-    case valid = "Valid"
-    case invalid = "Invalid"
-    case unchecked = "Unchecked"
+    case valid
+    case invalid
+    case unchecked
 }
 
 
@@ -9345,7 +9361,7 @@ extension MdlSessionMode: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
-public enum MDocItem: Codable {
+public enum MDocItem {
     
     case text(String
     )
@@ -9357,22 +9373,6 @@ public enum MDocItem: Codable {
     )
     case array([MDocItem]
     )
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .text(let s):
-            try container.encode(s)
-        case .bool(let a):
-            try container.encode(a)
-        case .integer(let n):
-            try container.encode(n)
-        case .itemMap(let n):
-            try container.encode(n)
-        case .array(let n):
-            try container.encode(n)
-        }
-    }
 }
 
 
@@ -13672,7 +13672,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_default_ld_json_context() != 13685) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 54255) {
+    if (uniffi_mobile_sdk_rs_checksum_func_establish_session() != 5381) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_generate_pop_complete() != 41207) {

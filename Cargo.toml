@@ -19,13 +19,14 @@ path = "uniffi-bindgen.rs"
 cose-rs = { git = "https://github.com/spruceid/cose-rs", rev = "0018c9b", features = [
     "time",
 ] }
-isomdl = { git = "https://github.com/affinitiquest/mobile-isomdl", rev = "fbff470" }
+isomdl = { git = "https://github.com/affinitiquest/mobile-isomdl", rev = "19bec12" }
 oid4vci = { git = "https://github.com/spruceid/oid4vci-rs", rev = "e97b01e" }
 openid4vp = { git = "https://github.com/spruceid/openid4vp", rev = "2212f78" }
 ssi = { version = "0.10.2", features = ["secp256r1", "secp384r1"] }
 ssi-jws = "0.3.1"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
 base64-url = "3.0.0"
+bs58 = "0.5"
 anyhow = "1.0.95"
 async-trait = "0.1"
 base64 = "0.22.0"
@@ -66,16 +67,19 @@ uniffi = { version = "0.28.1", features = ["cli", "tokio"] }
 url = { version = "2.5", features = ["serde"] }
 urlencoding = "2.1.3"
 uuid = { version = "1.6.1", features = ["v4"] }
+linked-data = "0.1.2"
 w3c-vc-barcodes = { git = "https://github.com/spruceid/w3c-vc-barcodes", rev = "9aeb38d" }
 x509-cert = { version = "0.2.5", features = ["builder", "hazmat"] }
-
-
-[target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.13"
 
 [dev-dependencies]
 rstest = "0.22.0"
 uniffi = { version = "0.28.1", features = ["bindgen-tests"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.13"
+
 [build-dependencies]
 uniffi = { version = "0.28.1", features = ["build"] }
+
+#[patch."https://github.com/affinitiquest/mobile-isomdl"]
+#isomdl = { path = "../mobile-isomdl" }
