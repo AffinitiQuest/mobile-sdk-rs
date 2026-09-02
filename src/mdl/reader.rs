@@ -602,15 +602,11 @@ pub fn get_verified_response(
     // synthetic non-ISO namespace rather than a new top-level struct field - "x509" can't
     // collide with a real mdoc namespace (those are reverse-DNS, e.g. org.iso.18013.5.1).
     if validated_response.leaf_certificate_serial_number.is_some()
-        || validated_response.leaf_certificate_issuer_common_name.is_some()
         || validated_response.leaf_certificate_crl_distribution_point.is_some()
     {
         let mut x509_entry = HashMap::new();
         if let Some(serial) = validated_response.leaf_certificate_serial_number.clone() {
             x509_entry.insert("leafCertificateSerialNumber".to_string(), MDocItem::Text(serial));
-        }
-        if let Some(issuer_cn) = validated_response.leaf_certificate_issuer_common_name.clone() {
-            x509_entry.insert("leafCertificateIssuerCommonName".to_string(), MDocItem::Text(issuer_cn));
         }
         if let Some(cdp) = validated_response.leaf_certificate_crl_distribution_point.clone() {
             x509_entry.insert("leafCertificateCrlDistributionPoint".to_string(), MDocItem::Text(cdp));
