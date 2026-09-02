@@ -577,7 +577,7 @@ pub fn get_verified_response(
         None
     };
     log::info!("{:#?}", errors);
-    let verified_response: Result<_, _> = validated_response
+    let verified_response: Result<HashMap<String, HashMap<String, MDocItem>>, MDLReaderResponseError> = validated_response
         .response
         .into_iter()
         .map(|(namespace, items)| {
@@ -594,9 +594,25 @@ pub fn get_verified_response(
             }
         })
         .collect();
-    let verified_response = verified_response.map_err(|e| MDLReaderResponseError::Generic {
+    let mut verified_response = verified_response.map_err(|e| MDLReaderResponseError::Generic {
         value: format!("Unable to parse response: {e:?}"),
     })?;
+
+    // Surface the leaf certificate's identity for CRL-based revocation checking, via a
+    // synthetic non-ISO namespace rather than a new top-level struct field - "x509" can't
+    // collide with a real mdoc namespace (those are reverse-DNS, e.g. org.iso.18013.5.1).
+    if validated_response.leaf_certificate_serial_number.is_some()
+        || validated_response.leaf_certificate_crl_distribution_point.is_some()
+    {
+        let mut x509_entry = HashMap::new();
+        if let Some(serial) = validated_response.leaf_certificate_serial_number.clone() {
+            x509_entry.insert("leafCertificateSerialNumber".to_string(), MDocItem::Text(serial));
+        }
+        if let Some(cdp) = validated_response.leaf_certificate_crl_distribution_point.clone() {
+            x509_entry.insert("leafCertificateCrlDistributionPoint".to_string(), MDocItem::Text(cdp));
+        }
+        verified_response.insert("x509".to_string(), x509_entry);
+    }
     let (signed_issuer_metadata, issuer_metadata_signature_verified) =
         match validated_response.signed_issuer_metadata.as_deref() {
             Some(jws) => {
