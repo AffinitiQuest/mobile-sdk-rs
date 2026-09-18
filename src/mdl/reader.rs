@@ -411,8 +411,17 @@ pub async fn fetch_did_document(
     if !did_without_fragment.starts_with("did:web:") {
         return trusted;
     }
-    let domain = &did_without_fragment[8..];
-    let url = format!("https://{domain}/.well-known/did.json");
+    let rest = &did_without_fragment[8..];
+    // did:web with path segments: "domain:path:to:resource" → "https://domain/path/to/resource/did.json"
+    // did:web domain-only: "domain" → "https://domain/.well-known/did.json"
+    let url = match rest.find(':') {
+        Some(colon) => {
+            let domain = &rest[..colon];
+            let path = rest[colon + 1..].replace(':', "/");
+            format!("https://{domain}/{path}/did.json")
+        }
+        None => format!("https://{rest}/.well-known/did.json"),
+    };
     log::info!("Fetching DID document from: {url}");
 
     let fetched_text = match reqwest::get(&url).await {
@@ -463,7 +472,8 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
             let fragment_string = fragment.as_str();
             log::info!("{:#?}", fragment_string);
             let key_id = format!("#{fragment_string}");
-            if vm["id"] == key_id {
+            let key_id_abs = format!("{without_fragment}#{fragment_string}");
+            if vm["id"] == key_id || vm["id"] == key_id_abs {
                 let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
                 let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
                 let key: ssi::jwk::JWK = serde_json::json!(public_key_jwk).try_into().map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse Issuer JWK from DID Document.".to_string() })?;
