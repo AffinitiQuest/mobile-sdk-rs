@@ -472,7 +472,7 @@ pub async fn get_jwt(jwt: &str, dids: HashMap<String, String>, resolve_dids: boo
             let fragment_string = fragment.as_str();
             log::info!("{:#?}", fragment_string);
             let key_id = format!("#{fragment_string}");
-            let key_id_abs = format!("{without_fragment}#{fragment_string}");
+            let key_id_abs = format!("{}#{fragment_string}", without_fragment.as_str());
             if vm["id"] == key_id || vm["id"] == key_id_abs {
                 let jws = Jws::new(base_jwt).map_err(|_| MDLReaderResponseError::Generic { value: "Failed to parse JWT for verification.".to_string() })?;
                 let public_key_jwk = vm["publicKeyJwk"].as_object().ok_or(MDLReaderResponseError::Generic { value: "Failed to get publicKeyJWK from DID.".to_string() })?;
