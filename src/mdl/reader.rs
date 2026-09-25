@@ -647,6 +647,79 @@ pub fn get_verified_response(
     })
 }
 
+/// Result of extracting a VICAL's trust anchor certificates.
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum VicalTrustAnchorCertificatesResult {
+    /// Every IACA certificate the VICAL lists, PEM-encoded, in the order the VICAL lists them.
+    Certificates { pems: Vec<String> },
+    /// The VICAL, trust anchor chain, or a listed certificate could not be parsed or verified.
+    Error { reason: String },
+}
+
+/// Verifies a synced VICAL (ISO/IEC 18013-5 Annex C) against its independently-supplied trust
+/// anchor chain, then returns every IACA certificate it lists for `doc_type`, PEM-encoded. This
+/// is meant to be called *before* a credential is presented, so its result can be folded into the
+/// trust anchor registry passed to `establish_session` (gc_verifier's `ProofManager.getCerts()`,
+/// alongside directly-synced X509Trust/MdocIssuersTrust certs) so a VICAL-covered issuer's
+/// credential passes the primary chain validation directly, rather than needing a separate
+/// post-hoc check after the fact.
+///
+/// `vical_base64`/`trust_anchor_chain_pems_base64` are the base64-encoded inputs from a synced
+/// `SyncedContentVicalTrust`/`VicalIssuer` doc. `doc_type` is the docType of the credential
+/// actually being verified (known at verification time from the mdoc itself, not the
+/// proofDesign's requested docType) - only certificates whose `docType` array lists it are
+/// returned.
+///
+/// Fails closed: any decoding, parsing, or verification error returns `Error`, never a partial
+/// certificate list.
+#[uniffi::export]
+pub fn get_vical_trust_anchor_certificates(
+    vical_base64: String,
+    trust_anchor_chain_pems_base64: Vec<String>,
+    doc_type: String,
+) -> VicalTrustAnchorCertificatesResult {
+    match get_vical_trust_anchor_certificates_inner(&vical_base64, &trust_anchor_chain_pems_base64, &doc_type) {
+        Ok(pems) => VicalTrustAnchorCertificatesResult::Certificates { pems },
+        Err(reason) => VicalTrustAnchorCertificatesResult::Error { reason },
+    }
+}
+
+fn get_vical_trust_anchor_certificates_inner(
+    vical_base64: &str,
+    trust_anchor_chain_pems_base64: &[String],
+    doc_type: &str,
+) -> Result<Vec<String>, String> {
+    use base64::Engine;
+    let engine = base64::engine::general_purpose::STANDARD;
+
+    let vical_bytes = engine
+        .decode(vical_base64)
+        .map_err(|e| format!("vical_base64 is not valid base64: {e}"))?;
+
+    let trust_anchor_chain_pems = trust_anchor_chain_pems_base64
+        .iter()
+        .map(|entry| {
+            let pem_bytes = engine
+                .decode(entry)
+                .map_err(|e| format!("trust anchor chain entry is not valid base64: {e}"))?;
+            String::from_utf8(pem_bytes)
+                .map_err(|e| format!("trust anchor chain entry is not valid UTF-8 PEM text: {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let verified_vical = isomdl::definitions::x509::vical::verify_vical(
+        &vical_bytes,
+        &trust_anchor_chain_pems,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let pems = verified_vical
+        .certificates_as_pem(Some(doc_type))
+        .map_err(|e| e.to_string())?;
+
+    Ok(pems)
+}
+
 #[uniffi::export]
 pub async fn handle_response(
     state: Arc<MDLSessionManager>,

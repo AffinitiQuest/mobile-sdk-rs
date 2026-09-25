@@ -11627,6 +11627,76 @@ extension VerificationResult: Equatable, Hashable {}
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Result of extracting a VICAL's trust anchor certificates.
+ */
+
+public enum VicalTrustAnchorCertificatesResult {
+    
+    /**
+     * Every IACA certificate the VICAL lists, PEM-encoded, in the order the VICAL lists them.
+     */
+    case certificates(pems: [String]
+    )
+    /**
+     * The VICAL, trust anchor chain, or a listed certificate could not be parsed or verified.
+     */
+    case error(reason: String
+    )
+}
+
+
+public struct FfiConverterTypeVicalTrustAnchorCertificatesResult: FfiConverterRustBuffer {
+    typealias SwiftType = VicalTrustAnchorCertificatesResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VicalTrustAnchorCertificatesResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .certificates(pems: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        case 2: return .error(reason: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VicalTrustAnchorCertificatesResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .certificates(pems):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceString.write(pems, into: &buf)
+            
+        
+        case let .error(reason):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+public func FfiConverterTypeVicalTrustAnchorCertificatesResult_lift(_ buf: RustBuffer) throws -> VicalTrustAnchorCertificatesResult {
+    return try FfiConverterTypeVicalTrustAnchorCertificatesResult.lift(buf)
+}
+
+public func FfiConverterTypeVicalTrustAnchorCertificatesResult_lower(_ value: VicalTrustAnchorCertificatesResult) -> RustBuffer {
+    return FfiConverterTypeVicalTrustAnchorCertificatesResult.lower(value)
+}
+
+
+
+extension VicalTrustAnchorCertificatesResult: Equatable, Hashable {}
+
+
+
 
 
 
@@ -13429,6 +13499,33 @@ public func generateTestMdl(keyManager: KeyStore, keyAlias: KeyAlias)throws  -> 
     )
 })
 }
+/**
+ * Verifies a synced VICAL (ISO/IEC 18013-5 Annex C) against its independently-supplied trust
+ * anchor chain, then returns every IACA certificate it lists for `doc_type`, PEM-encoded. This
+ * is meant to be called *before* a credential is presented, so its result can be folded into the
+ * trust anchor registry passed to `establish_session` (gc_verifier's `ProofManager.getCerts()`,
+ * alongside directly-synced X509Trust/MdocIssuersTrust certs) so a VICAL-covered issuer's
+ * credential passes the primary chain validation directly, rather than needing a separate
+ * post-hoc check after the fact.
+ *
+ * `vical_base64`/`trust_anchor_chain_pems_base64` are the base64-encoded inputs from a synced
+ * `SyncedContentVicalTrust`/`VicalIssuer` doc. `doc_type` is the docType of the credential
+ * actually being verified (known at verification time from the mdoc itself, not the
+ * proofDesign's requested docType) - only certificates whose `docType` array lists it are
+ * returned.
+ *
+ * Fails closed: any decoding, parsing, or verification error returns `Error`, never a partial
+ * certificate list.
+ */
+public func getVicalTrustAnchorCertificates(vicalBase64: String, trustAnchorChainPemsBase64: [String], docType: String) -> VicalTrustAnchorCertificatesResult {
+    return try!  FfiConverterTypeVicalTrustAnchorCertificatesResult.lift(try! rustCall() {
+    uniffi_mobile_sdk_rs_fn_func_get_vical_trust_anchor_certificates(
+        FfiConverterString.lower(vicalBase64),
+        FfiConverterSequenceString.lower(trustAnchorChainPemsBase64),
+        FfiConverterString.lower(docType),$0
+    )
+})
+}
 public func handleResponse(state: MdlSessionManager, response: Data, dids: [String: String], resolveDids: Bool)async throws  -> VerificationResponse {
     return
         try  await uniffiRustCallAsync(
@@ -13446,7 +13543,10 @@ public func handleResponse(state: MdlSessionManager, response: Data, dids: [Stri
 /**
  * Initiate the global logger for the mobile SDK.
  *
- * This method should be called once per application lifecycle.
+ * This method should be called once per application lifecycle. The iOS branch below is what
+ * makes any log::info!/log::warn! call in mobile-isomdl/mobile-sdk-rs visible on iOS at all -
+ * previously this function only wired up a logger on Android (android_logger), so nothing using
+ * the `log` crate ever reached Xcode's console or Console.app on iOS regardless of build type.
  */
 public func initGlobalLogger() {try! rustCall() {
     uniffi_mobile_sdk_rs_fn_func_init_global_logger($0
@@ -13684,10 +13784,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_mobile_sdk_rs_checksum_func_generate_test_mdl() != 22635) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_mobile_sdk_rs_checksum_func_get_vical_trust_anchor_certificates() != 28657) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_mobile_sdk_rs_checksum_func_handle_response() != 50551) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_mobile_sdk_rs_checksum_func_init_global_logger() != 47162) {
+    if (uniffi_mobile_sdk_rs_checksum_func_init_global_logger() != 58075) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_mobile_sdk_rs_checksum_func_initialize_mdl_presentation() != 29387) {
