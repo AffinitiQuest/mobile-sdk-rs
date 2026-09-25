@@ -674,14 +674,6 @@ pub fn get_vical_trust_anchor_certificates(
     }
 }
 
-// TEMPORARY TESTING OVERRIDE - see isomdl's verify_vical() doc comment. When
-// true, a VICAL whose trust anchor chain IS present but doesn't actually verify its signature is
-// logged and treated as trusted anyway, instead of being rejected. This exists ONLY to unblock
-// testing against a VicalTrust doc whose synced trust anchor chain is incomplete/wrong (e.g.
-// missing the intermediate signer certificate). MUST be set back to `false` before this ships -
-// while `true` it defeats the entire point of VICAL signature verification.
-const TEMP_VICAL_ALLOW_UNVERIFIED_SIGNATURE_FOR_TESTING: bool = true;
-
 fn get_vical_trust_anchor_certificates_inner(
     vical_base64: &str,
     trust_anchor_chain_pems_base64: &[String],
@@ -708,7 +700,6 @@ fn get_vical_trust_anchor_certificates_inner(
     let verified_vical = isomdl::definitions::x509::vical::verify_vical(
         &vical_bytes,
         &trust_anchor_chain_pems,
-        TEMP_VICAL_ALLOW_UNVERIFIED_SIGNATURE_FOR_TESTING,
     )
     .map_err(|e| e.to_string())?;
 
