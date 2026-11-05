@@ -563,7 +563,20 @@ pub fn get_verified_response(
         validated_response.response.insert("all".to_string(), issuer_authentication.response);
         if issuer_authentication.credential_status != None {
             log::info!("Credential status present.");
-            validated_response.response.insert("credentialStatus".to_string(), issuer_authentication.credential_status.unwrap());
+            // credentialStatus may be a single BitstringStatusListEntry object or an array of them
+            // (multiple purposes, e.g. revocation + suspension). Normalize to { entries: [...] } so
+            // the JS side always iterates the same shape, and so this survives the as_object() check
+            // below (a bare array would fail it).
+            let entries = match issuer_authentication.credential_status.unwrap() {
+                serde_json::Value::Array(arr) => arr,
+                other => vec![other],
+            };
+            let mut credential_status_object = serde_json::Map::new();
+            credential_status_object.insert("entries".to_string(), serde_json::Value::Array(entries));
+            validated_response.response.insert(
+                "credentialStatus".to_string(),
+                serde_json::Value::Object(credential_status_object),
+            );
         }
 
         if issuer_authentication.valid_until != None {
