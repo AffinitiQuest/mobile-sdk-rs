@@ -626,6 +626,8 @@ pub fn get_verified_response(
     // collide with a real mdoc namespace (those are reverse-DNS, e.g. org.iso.18013.5.1).
     if validated_response.leaf_certificate_serial_number.is_some()
         || validated_response.leaf_certificate_crl_distribution_point.is_some()
+        || validated_response.device_leaf_certificate_serial_number.is_some()
+        || validated_response.device_leaf_certificate_crl_distribution_point.is_some()
     {
         let mut x509_entry = HashMap::new();
         if let Some(serial) = validated_response.leaf_certificate_serial_number.clone() {
@@ -633,6 +635,12 @@ pub fn get_verified_response(
         }
         if let Some(cdp) = validated_response.leaf_certificate_crl_distribution_point.clone() {
             x509_entry.insert("leafCertificateCrlDistributionPoint".to_string(), MDocItem::Text(cdp));
+        }
+        if let Some(serial) = validated_response.device_leaf_certificate_serial_number.clone() {
+            x509_entry.insert("deviceCertSerialNumber".to_string(), MDocItem::Text(serial));
+        }
+        if let Some(cdp) = validated_response.device_leaf_certificate_crl_distribution_point.clone() {
+            x509_entry.insert("deviceCertCrlDistributionPoint".to_string(), MDocItem::Text(cdp));
         }
         verified_response.insert("x509".to_string(), x509_entry);
     }
